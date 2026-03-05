@@ -26,6 +26,9 @@ _STARtmp/
 # R session files
 .Rhistory
 .RData
+
+# Pipeline lock
+.pipeline.lock
 .Rproj.user/
 
 # OS files

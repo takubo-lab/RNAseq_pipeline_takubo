@@ -23,7 +23,31 @@ git clone https://github.com/takubo-lab/RNAseq_pipeline_takubo.git
 cd RNAseq_pipeline_takubo
 ```
 
-### 2. 設定ファイルを編集
+### 2-A. プロジェクト初期化（推奨）
+
+パイプラインコードとデータを分離して管理する方法:
+
+```bash
+# 新しいプロジェクトを初期化
+bash init_project.sh /path/to/my_project hg38
+
+# サンプル情報を編集
+vim /path/to/my_project/samples.tsv
+
+# FASTQファイルを配置
+cp *.fq.gz /path/to/my_project/fastq/
+
+# パイプライン実行
+bash run_pipeline.sh --config /path/to/my_project/config.sh
+```
+
+### 2-B. 直接実行（シンプル）
+
+パイプラインディレクトリ内で直接解析する方法:
+
+### 2-B. 直接実行（シンプル）
+
+パイプラインディレクトリ内で直接解析する方法:
 
 **`config.sh`** — ゲノム、パス、パラメータを設定:
 ```bash
@@ -57,16 +81,48 @@ bash run_pipeline.sh --from 4
 
 # 特定のステップのみ実行
 bash run_pipeline.sh --only 5
+
+# プロジェクト指定で実行
+bash run_pipeline.sh --config /path/to/my_project/config.sh
 ```
+
+## バージョン管理・マルチユーザー運用
+
+### バージョニング
+
+パイプラインは `VERSION` ファイルでセマンティックバージョニングを管理:
+- パッチ (1.0.x): バグ修正
+- マイナー (1.x.0): 機能追加（後方互換）
+- メジャー (x.0.0): 破壊的変更
+
+リリース時は git tag を使用:
+```bash
+git tag -a v1.1.0 -m "Add comparisons.tsv support"
+git push origin v1.1.0
+```
+
+### Provenance (実行記録)
+
+パイプライン実行時に `provenance.yml` が自動生成され、以下を記録:
+- パイプラインバージョン・コミット
+- 実行日時・ユーザー・ホスト名
+- ソフトウェアバージョン (STAR, R, featureCounts)
+
+### ロック機構
+
+同一プロジェクトでの同時実行を防止する `.pipeline.lock` ファイルによるロック機構を搭載。
 
 ## ディレクトリ構成
 
 ```
 RNAseq_pipeline_takubo/
+├── VERSION                # パイプラインバージョン
 ├── config.sh              # パラメータ設定
 ├── samples.tsv            # サンプル情報
+├── init_project.sh        # プロジェクト初期化スクリプト
 ├── run_pipeline.sh        # メイン実行スクリプト
 ├── scripts/
+│   ├── utils.sh           # ユーティリティ関数
 │   ├── 01_mapping.sh
 │   ├── 02_featurecounts.sh
 │   ├── 03_featurecounts_exon.sh

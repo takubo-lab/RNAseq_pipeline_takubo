@@ -6,8 +6,13 @@
 # All paths should be absolute or relative to the project directory.
 # =============================================================================
 
+# --- Pipeline location ---
+PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # --- Project ---
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# When using init_project.sh, PROJECT_DIR points to the project directory.
+# For standalone use, it defaults to the pipeline directory itself.
+PROJECT_DIR="${PIPELINE_DIR}"
 SAMPLES_TSV="${PROJECT_DIR}/samples.tsv"
 
 # --- Reference Genome ---

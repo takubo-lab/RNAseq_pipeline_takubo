@@ -24,6 +24,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "${SCRIPT_DIR}"
 
+# Load utility functions
+source "${SCRIPT_DIR}/scripts/utils.sh"
+
 CONFIG="${SCRIPT_DIR}/config.sh"
 FROM_STEP=1
 ONLY_STEP=0
@@ -56,8 +59,14 @@ done
 
 source "${CONFIG}"
 
+# --- Pre-flight checks ---
+log_info "Pipeline version: $(get_pipeline_version)"
+validate_samples "${CONFIG}"
+acquire_lock "${PROJECT_DIR}"
+record_provenance "${CONFIG}" "${PROJECT_DIR}"
+
 echo "####################################################"
-echo "# RNA-seq Analysis Pipeline"
+echo "# RNA-seq Analysis Pipeline  v$(get_pipeline_version)"
 echo "# Project : ${PROJECT_DIR}"
 echo "# Genome  : ${GENOME}"
 echo "# Config  : ${CONFIG}"
@@ -122,3 +131,6 @@ fi
 echo "####################################################"
 echo "# Pipeline Complete: $(date)"
 echo "####################################################"
+
+release_lock "${PROJECT_DIR}"
+log_info "All done."
