@@ -1,0 +1,38 @@
+# Output directories
+BAM/
+counts/
+DESeq2/
+fGSEA/
+exon_DE/
+
+# FASTQ files (large, should not be committed)
+fastq/
+*.fq.gz
+*.fastq.gz
+
+# BAM files
+*.bam
+*.bam.bai
+*.bai
+
+# Temporary/log files
+*.log
+*.out
+*_STARtmp/
+*_STARgenome/
+*_STARpass1/
+_STARtmp/
+
+# R session files
+.Rhistory
+.RData
+.Rproj.user/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
