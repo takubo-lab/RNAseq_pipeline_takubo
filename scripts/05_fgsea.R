@@ -4,8 +4,11 @@
 # =============================================================================
 # Runs fGSEA on DESeq2 results for MSigDB gene sets + custom gene sets.
 #
-# Usage:
-#   Rscript scripts/05_fgsea.R [config.sh]
+# Cross-platform:
+#   Linux : bash run_pipeline.sh (full pipeline)
+#   Win/Mac: Rscript scripts/05_fgsea.R [config.sh]
+#
+# 可視化設定: plot_config.default.yml / plot_config.yml
 # =============================================================================
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -23,12 +26,14 @@ parse_config <- function(config_path) {
       parts <- strsplit(m, "=", fixed = TRUE)[[1]]
       key <- parts[1]
       val <- paste(parts[-1], collapse = "=")
-      val <- gsub('^["\']|["\']$', '', val)
+      val <- gsub('^["\047]|["\047]$', '', val)
       env[[key]] <- val
     }
   }
   env
 }
+
+`%||%` <- function(x, y) if (is.null(x)) y else x
 
 cfg <- parse_config(config_file)
 
@@ -53,7 +58,24 @@ suppressPackageStartupMessages({
   library(magrittr)
   library(fgsea)
   library(msigdbr)
+  library(ggplot2)
 })
+
+# --- Load plot config ---
+script_dir <- tryCatch({
+  normalizePath(dirname(sys.frame(1)$ofile), mustWork = TRUE)
+}, error = function(e) {
+  candidates <- c(
+    file.path(project_dir, "scripts"),
+    file.path(cfg$PIPELINE_DIR %||% ".", "scripts")
+  )
+  for (d in candidates) {
+    if (file.exists(file.path(d, "plot_utils.R"))) return(normalizePath(d))
+  }
+  "scripts"
+})
+source(file.path(script_dir, "plot_utils.R"))
+pcfg <- load_plot_config()
 
 set.seed(123)
 dir.create(fgsea_dir, showWarnings = FALSE, recursive = TRUE)
@@ -125,6 +147,33 @@ run_fgsea <- function(de_file, gene_set_list) {
     out_file <- file.path(comp_dir,
                           paste0("fgsea_Results_", file_name, "_", cat_names[i], ".tsv"))
     fwrite(fgsea_res, out_file, sep = "\t")
+
+    # --- Bar plot of top pathways (using plot_config) ---
+    sig_res <- fgsea_res %>% filter(padj < fgsea_padj)
+    if (nrow(sig_res) > 0) {
+      top_n <- pcfg$fgsea$top_n_plot %||% 20
+      top_up <- sig_res %>% filter(NES > 0) %>% arrange(padj) %>% head(top_n / 2)
+      top_down <- sig_res %>% filter(NES < 0) %>% arrange(padj) %>% head(top_n / 2)
+      top_paths <- bind_rows(top_up, top_down) %>% arrange(NES)
+
+      if (nrow(top_paths) > 0) {
+        vcols <- get_volcano_colors(pcfg)
+        p_bar <- ggplot(top_paths, aes(x = reorder(pathway, NES), y = NES,
+                                        fill = ifelse(NES > 0, "up", "down"))) +
+          geom_col(width = pcfg$fgsea$bar_width %||% 0.7) +
+          scale_fill_manual(values = c(up = vcols["up"], down = vcols["down"]),
+                            guide = "none") +
+          coord_flip() +
+          labs(x = "", y = "Normalized Enrichment Score (NES)",
+               title = paste0("fGSEA: ", file_name, " — ", cat_names[i])) +
+          theme_pipeline(pcfg) +
+          theme(axis.text.y = element_text(size = 8))
+
+        save_plot(p_bar,
+                  paste0("fgsea_barplot_", file_name, "_", cat_names[i]),
+                  type = "fgsea_bar", outdir = comp_dir, cfg = pcfg)
+      }
+    }
   }
 }
 

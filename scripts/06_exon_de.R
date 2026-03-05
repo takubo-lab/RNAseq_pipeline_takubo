@@ -5,8 +5,12 @@
 # Uses DEXSeq to detect differential exon usage between groups,
 # which indicates splicing variant differences.
 #
-# Usage:
-#   Rscript scripts/06_exon_de.R [config.sh]
+# Cross-platform:
+#   Linux : bash run_pipeline.sh (full pipeline)
+#   Win/Mac: Rscript scripts/06_exon_de.R [config.sh]
+#            (exon_count.txt と samples.tsv が事前に用意されている前提)
+#
+# 可視化設定: plot_config.default.yml / plot_config.yml
 # =============================================================================
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -24,12 +28,14 @@ parse_config <- function(config_path) {
       parts <- strsplit(m, "=", fixed = TRUE)[[1]]
       key <- parts[1]
       val <- paste(parts[-1], collapse = "=")
-      val <- gsub('^["\']|["\']$', '', val)
+      val <- gsub('^["\047]|["\047]$', '', val)
       env[[key]] <- val
     }
   }
   env
 }
+
+`%||%` <- function(x, y) if (is.null(x)) y else x
 
 cfg <- parse_config(config_file)
 
@@ -47,6 +53,22 @@ suppressPackageStartupMessages({
   library(ggrepel)
   library(BiocParallel)
 })
+
+# --- Load plot config ---
+script_dir <- tryCatch({
+  normalizePath(dirname(sys.frame(1)$ofile), mustWork = TRUE)
+}, error = function(e) {
+  candidates <- c(
+    file.path(project_dir, "scripts"),
+    file.path(cfg$PIPELINE_DIR %||% ".", "scripts")
+  )
+  for (d in candidates) {
+    if (file.exists(file.path(d, "plot_utils.R"))) return(normalizePath(d))
+  }
+  "scripts"
+})
+source(file.path(script_dir, "plot_utils.R"))
+pcfg <- load_plot_config()
 
 set.seed(123)
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
@@ -117,7 +139,12 @@ cat("Estimating size factors...\n")
 dxd <- estimateSizeFactors(dxd)
 
 cat("Estimating dispersions...\n")
-BPPARAM <- MulticoreParam(workers = min(4, parallel::detectCores()))
+# Use platform-appropriate parallelism
+if (.Platform$OS.type == "windows") {
+  BPPARAM <- SerialParam()
+} else {
+  BPPARAM <- MulticoreParam(workers = min(4, parallel::detectCores()))
+}
 dxd <- estimateDispersions(dxd, BPPARAM = BPPARAM)
 
 cat("Testing for differential exon usage...\n")
@@ -164,21 +191,41 @@ gene_summary <- dxr_df %>%
 fwrite(gene_summary, file.path(output_dir, "DEXSeq_gene_summary.tsv"), sep = "\t")
 cat("Genes with differential exon usage: ", nrow(gene_summary), "\n")
 
-# --- Visualization: top genes ---
+# --- Visualization: top genes (using plot_config) ---
 top_genes <- head(gene_summary$gene_name, 20)
 if (length(top_genes) > 0) {
   plot_dir <- file.path(output_dir, "plots")
   dir.create(plot_dir, showWarnings = FALSE)
 
+  exon_size <- pcfg$figure_size$exon_usage %||% list(width = 12, height = 6)
+  fmt <- pcfg$output$format %||% "png"
+  dpi <- pcfg$output$dpi %||% 600
+
   for (g in top_genes) {
     tryCatch({
-      png(file.path(plot_dir, paste0(g, "_exon_usage.png")),
-          width = 1200, height = 600, res = 150)
+      out_file <- file.path(plot_dir, paste0(g, "_exon_usage.", fmt))
+      if (fmt == "png") {
+        png(out_file,
+            width = exon_size$width, height = exon_size$height,
+            units = "in", res = dpi)
+      } else if (fmt == "pdf") {
+        pdf(out_file,
+            width = exon_size$width, height = exon_size$height)
+      } else if (fmt == "svg") {
+        svg(out_file,
+            width = exon_size$width, height = exon_size$height)
+      } else {
+        png(out_file,
+            width = exon_size$width, height = exon_size$height,
+            units = "in", res = dpi)
+      }
       plotDEXSeq(dxr, g, legend = TRUE, cex.axis = 1.2, cex = 1.3,
                  lwd = 2, displayTranscripts = FALSE)
       dev.off()
+      message("[plot_utils] 保存: ", out_file)
     }, error = function(e) {
       message("  Could not plot: ", g, " - ", e$message)
+      tryCatch(dev.off(), error = function(e2) NULL)
     })
   }
 }

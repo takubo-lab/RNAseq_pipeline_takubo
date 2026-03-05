@@ -176,6 +176,15 @@ if [[ -d "${PIPELINE_DIR}/Gene_set" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Copy plot_config.default.yml for visualization customization
+# ---------------------------------------------------------------------------
+if [[ -f "${PIPELINE_DIR}/plot_config.default.yml" ]]; then
+    cp "${PIPELINE_DIR}/plot_config.default.yml" "${PROJECT_NEW}/plot_config.default.yml"
+    log_info "Copied plot_config.default.yml → ${PROJECT_NEW}/"
+    log_info "個人カスタマイズ: cp plot_config.default.yml plot_config.yml"
+fi
+
+# ---------------------------------------------------------------------------
 # Create .gitignore for project directory
 # ---------------------------------------------------------------------------
 cat > "${PROJECT_NEW}/.gitignore" <<'GITEOF'
@@ -193,6 +202,14 @@ BAM/
 
 # Pipeline lock
 .pipeline.lock
+
+# Personal plot config (use plot_config.default.yml as template)
+plot_config.yml
+
+# renv library (reproducible via renv.lock)
+renv/library/
+renv/staging/
+renv/sandbox/
 
 # Provenance (auto-generated)
 # provenance.yml
@@ -221,8 +238,17 @@ echo "Next steps:"
 echo "  1. Edit ${PROJECT_NEW}/config.sh"
 echo "  2. Edit ${PROJECT_NEW}/samples.tsv"
 echo "  3. Place FASTQ files in ${PROJECT_NEW}/fastq/"
-echo "  4. Run the pipeline:"
+echo "  4. (Optional) Customize plots:"
+echo "       cp ${PROJECT_NEW}/plot_config.default.yml ${PROJECT_NEW}/plot_config.yml"
+echo "       vim ${PROJECT_NEW}/plot_config.yml"
+echo "  5. Run the pipeline:"
 echo ""
+echo "     # Linux (full pipeline, conda環境内):"
+echo "     conda activate rnaseq_takubo"
 echo "     bash ${PIPELINE_DIR}/run_pipeline.sh --config ${PROJECT_NEW}/config.sh"
+echo ""
+echo "     # Windows/Mac (R解析のみ, RStudio推奨):"
+echo "     cd ${PROJECT_NEW}"
+echo "     Rscript ${PIPELINE_DIR}/scripts/04_deseq2.R config.sh"
 echo ""
 echo "======================================================"

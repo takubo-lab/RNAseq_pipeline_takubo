@@ -5,8 +5,12 @@
 # Performs all-group pairwise comparisons using DESeq2.
 # Reads configuration from config.sh and sample info from samples.tsv.
 #
-# Usage:
-#   Rscript scripts/04_deseq2.R [config.sh]
+# Cross-platform:
+#   Linux : bash run_pipeline.sh (full pipeline)
+#   Win/Mac: Rscript scripts/04_deseq2.R [config.sh]
+#            (count.txt と samples.tsv が事前に用意されている前提)
+#
+# 可視化設定: plot_config.default.yml / plot_config.yml
 # =============================================================================
 
 # --- Parse config ---
@@ -24,12 +28,14 @@ parse_config <- function(config_path) {
       parts <- strsplit(m, "=", fixed = TRUE)[[1]]
       key <- parts[1]
       val <- paste(parts[-1], collapse = "=")
-      val <- gsub('^["\']|["\']$', '', val)
+      val <- gsub('^["\047]|["\047]$', '', val)
       env[[key]] <- val
     }
   }
   env
 }
+
+`%||%` <- function(x, y) if (is.null(x)) y else x
 
 cfg <- parse_config(config_file)
 
@@ -54,6 +60,23 @@ suppressPackageStartupMessages({
   library(magrittr)
   library(ggrepel)
 })
+
+# --- Load plot config ---
+# Determine script directory for sourcing plot_utils.R
+script_dir <- tryCatch({
+  normalizePath(dirname(sys.frame(1)$ofile), mustWork = TRUE)
+}, error = function(e) {
+  candidates <- c(
+    file.path(project_dir, "scripts"),
+    file.path(cfg$PIPELINE_DIR %||% ".", "scripts")
+  )
+  for (d in candidates) {
+    if (file.exists(file.path(d, "plot_utils.R"))) return(normalizePath(d))
+  }
+  "scripts"
+})
+source(file.path(script_dir, "plot_utils.R"))
+pcfg <- load_plot_config()
 
 set.seed(123)
 
@@ -137,37 +160,51 @@ vst_short <- assay(vst_out)[rev(order(stdev))[1:top_n], ]
 pcaData    <- data.frame(prcomp(t(vst_short))$x)
 percentVar <- round(100 * summary(prcomp(t(vst_short)))$importance[2, ])
 
+group_cols <- get_group_colors(as.character(sampleData$class), pcfg)
+
 p_pca <- ggplot(pcaData, aes(x = PC1, y = PC2, fill = sampleData$class)) +
-  geom_point(size = 8, alpha = 0.8, pch = 21, color = "Black") +
-  geom_text_repel(aes(label = rownames(pcaData)), max.overlaps = 20) +
+  geom_point(size = pcfg$pca$point_size, alpha = pcfg$pca$point_alpha,
+             pch = 21, color = "Black") +
+  scale_fill_manual(values = group_cols) +
   xlab(paste0("PC1: ", percentVar[1], "% variance")) +
   ylab(paste0("PC2: ", percentVar[2], "% variance")) +
   coord_fixed() +
   labs(fill = "Group") +
   ggtitle("PCA") +
-  theme_bw() +
-  theme(axis.text = element_text(size = 15),
-        axis.title = element_text(size = 15))
+  theme_pipeline(pcfg) +
+  theme(axis.text = element_text(size = pcfg$theme$base_size + 3),
+        axis.title = element_text(size = pcfg$theme$base_size + 3))
 
-ggsave(file.path(output_dir, "PCA_class.png"), p_pca, width = 8, height = 7, dpi = 600)
+if (pcfg$pca$show_labels) {
+  p_pca <- p_pca + geom_text_repel(aes(label = rownames(pcaData)),
+                                    size = pcfg$pca$label_size, max.overlaps = 20)
+}
+
+save_plot(p_pca, "PCA_class", type = "pca", outdir = output_dir, cfg = pcfg)
 
 # --- UMAP ---
 config_umap <- umap.defaults
-config_umap$n_neighbors <- min(3, ncol(vst_short) - 1)
+config_umap$n_neighbors <- min(pcfg$umap$n_neighbors, ncol(vst_short) - 1)
 u <- umap(t(vst_short), config = config_umap)
 u_df <- data.frame(u$layout)
 
 p_umap <- ggplot(u_df, aes(x = X1, y = X2, fill = sampleData$class)) +
-  geom_point(size = 5, alpha = 0.8, pch = 21, color = "Black") +
-  geom_text_repel(aes(label = rownames(u_df)), max.overlaps = 20) +
+  geom_point(size = pcfg$umap$point_size, alpha = pcfg$umap$point_alpha,
+             pch = 21, color = "Black") +
+  scale_fill_manual(values = group_cols) +
   xlab("UMAP_1") + ylab("UMAP_2") +
   labs(fill = "Group") +
   ggtitle("UMAP") +
-  theme_bw() +
-  theme(axis.text = element_text(size = 15),
-        axis.title = element_text(size = 15))
+  theme_pipeline(pcfg) +
+  theme(axis.text = element_text(size = pcfg$theme$base_size + 3),
+        axis.title = element_text(size = pcfg$theme$base_size + 3))
 
-ggsave(file.path(output_dir, "UMAP_all.png"), p_umap, width = 9, height = 7, dpi = 600)
+if (pcfg$umap$show_labels) {
+  p_umap <- p_umap + geom_text_repel(aes(label = rownames(u_df)),
+                                      size = pcfg$umap$label_size, max.overlaps = 20)
+}
+
+save_plot(p_umap, "UMAP_all", type = "umap", outdir = output_dir, cfg = pcfg)
 
 # --- PC Loadings ---
 loadings <- prcomp(t(vst_short))$rotation
@@ -181,9 +218,13 @@ all_pairs  <- combn(all_levels, 2, simplify = FALSE)
 
 cat("Performing ", length(all_pairs), " pairwise comparisons...\n")
 
-# Volcano plot function
+# Volcano plot function (uses plot_config)
 plot_volcano <- function(deseq2Results, gene_list = c(""), file_out,
-                         padj_thr = 0.001, lfc_thr = 1) {
+                         padj_thr = 0.001, lfc_thr = 1, pcfg = NULL) {
+  if (is.null(pcfg)) pcfg <- load_plot_config()
+  vcfg <- pcfg$volcano
+  vcols <- get_volcano_colors(pcfg)
+
   set.seed(42)
   df <- data.frame(deseq2Results) %>%
     mutate(sig = case_when(
@@ -195,22 +236,26 @@ plot_volcano <- function(deseq2Results, gene_list = c(""), file_out,
     mutate(mark = geneID %in% gene_list) %>%
     arrange(mark)
 
-  ggplot(df, aes(x = log2FoldChange, y = -log10(padj), fill = sig)) +
-    geom_point(pch = 21, aes(size = mark), alpha = 0.7) +
-    scale_fill_manual(values = c(down = "#33DFD4", marked = "#FFFF00",
-                                 non = "#CACACA", up = "#F73719")) +
-    scale_size_manual(values = c(1.5, 3)) +
+  p <- ggplot(df, aes(x = log2FoldChange, y = -log10(padj), fill = sig)) +
+    geom_point(pch = 21, aes(size = mark), alpha = vcfg$alpha_ns) +
+    scale_fill_manual(values = c(down = vcols["down"], marked = vcols["marked"],
+                                 non = vcols["ns"], up = vcols["up"])) +
+    scale_size_manual(values = c(vcfg$point_size, vcfg$marked_point_size)) +
     geom_text_repel(data = filter(df, mark & log2FoldChange > 0),
-                    aes(label = geneID), size = 4, max.overlaps = 10,
-                    nudge_y = 20, nudge_x = 30, box.padding = 0.5, color = "#000066") +
+                    aes(label = geneID), size = vcfg$label_size, max.overlaps = 10,
+                    nudge_y = vcfg$nudge_y, nudge_x = vcfg$nudge_x_pos,
+                    box.padding = 0.5, color = vcfg$label_color) +
     geom_text_repel(data = filter(df, mark & log2FoldChange < 0),
-                    aes(label = geneID), size = 4, max.overlaps = 10,
-                    nudge_y = 20, nudge_x = -30, box.padding = 0.5, color = "#000066") +
+                    aes(label = geneID), size = vcfg$label_size, max.overlaps = 10,
+                    nudge_y = vcfg$nudge_y, nudge_x = vcfg$nudge_x_neg,
+                    box.padding = 0.5, color = vcfg$label_color) +
     geom_vline(xintercept = lfc_thr, linetype = "dashed") +
     geom_vline(xintercept = -lfc_thr, linetype = "dashed") +
     geom_hline(yintercept = -log10(padj_thr), linetype = "dashed") +
-    theme_bw()
-  ggsave(paste0(file_out, "_volcano.png"), width = 6, height = 6)
+    theme_pipeline(pcfg)
+
+  save_plot(p, paste0(basename(file_out), "_volcano"), type = "volcano",
+            outdir = dirname(file_out), cfg = pcfg)
 }
 
 # Paired test function (for paired experimental designs)
@@ -298,7 +343,7 @@ for (pair in all_pairs) {
   # Volcano
   plot_volcano(res_df, gene_list,
                file.path(output_dir, comp_name),
-               padj_thr = padj_thr, lfc_thr = lfc_thr)
+               padj_thr = padj_thr, lfc_thr = lfc_thr, pcfg = pcfg)
 }
 
 cat("============================================\n")

@@ -30,6 +30,7 @@ source "${SCRIPT_DIR}/scripts/utils.sh"
 CONFIG="${SCRIPT_DIR}/config.sh"
 FROM_STEP=1
 ONLY_STEP=0
+FORCE="false"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -46,6 +47,14 @@ while [[ $# -gt 0 ]]; do
             ONLY_STEP="$2"
             shift 2
             ;;
+        --force)
+            FORCE="true"
+            shift
+            ;;
+        --version)
+            echo "RNAseq_pipeline_takubo v$(get_pipeline_version)"
+            exit 0
+            ;;
         -h|--help)
             head -25 "$0" | tail -20
             exit 0
@@ -57,6 +66,23 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# --- Conda 環境チェック ---
+EXPECTED_ENV="rnaseq_takubo"
+current_env="${CONDA_DEFAULT_ENV:-}"
+if [[ "${current_env}" != "${EXPECTED_ENV}" ]]; then
+    echo -e "\033[1;33m[WARN]\033[0m Conda環境 '${EXPECTED_ENV}' がアクティブではありません。"
+    echo -e "       現在の環境: '${current_env:-none}'"
+    echo ""
+    echo "  セットアップ:   bash setup_env.sh"
+    echo "  アクティベート: conda activate ${EXPECTED_ENV}"
+    echo ""
+    read -rp "このまま続行しますか？ [y/N]: " yn
+    case "${yn}" in
+        [Yy]*) echo "[INFO] 現在の環境で続行します。" ;;
+        *)     echo "[INFO] 中断しました。"; exit 1 ;;
+    esac
+fi
+
 source "${CONFIG}"
 
 # --- Pre-flight checks ---
@@ -65,11 +91,15 @@ validate_samples "${CONFIG}"
 acquire_lock "${PROJECT_DIR}"
 record_provenance "${CONFIG}" "${PROJECT_DIR}"
 
+# Export PIPELINE_ROOT for R scripts (plot_utils.R)
+export PIPELINE_ROOT="${SCRIPT_DIR}"
+
 echo "####################################################"
 echo "# RNA-seq Analysis Pipeline  v$(get_pipeline_version)"
 echo "# Project : ${PROJECT_DIR}"
 echo "# Genome  : ${GENOME}"
 echo "# Config  : ${CONFIG}"
+echo "# Conda   : ${CONDA_DEFAULT_ENV:-none}"
 echo "# Started : $(date)"
 echo "####################################################"
 echo ""
