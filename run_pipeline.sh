@@ -10,6 +10,10 @@
 #   bash run_pipeline.sh --from 3           # Start from step 3
 #   bash run_pipeline.sh --only 4           # Run only step 4
 #   bash run_pipeline.sh --config my.sh     # Use custom config
+#   bash run_pipeline.sh --from 4 \
+#       --merge-samples a/samples.tsv,b/samples.tsv \
+#       --merge-counts a/counts/count.txt,b/counts/count.txt \
+#       --merge-exon-counts a/counts/exon_count.txt,b/counts/exon_count.txt
 #
 # Steps:
 #   1. STAR mapping
@@ -31,6 +35,9 @@ CONFIG="${SCRIPT_DIR}/config.sh"
 FROM_STEP=1
 ONLY_STEP=0
 FORCE="false"
+MERGE_SAMPLES=""
+MERGE_COUNTS=""
+MERGE_EXON_COUNTS=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -50,6 +57,18 @@ while [[ $# -gt 0 ]]; do
         --force)
             FORCE="true"
             shift
+            ;;
+        --merge-samples)
+            MERGE_SAMPLES="$2"
+            shift 2
+            ;;
+        --merge-counts)
+            MERGE_COUNTS="$2"
+            shift 2
+            ;;
+        --merge-exon-counts)
+            MERGE_EXON_COUNTS="$2"
+            shift 2
             ;;
         --version)
             echo "RNAseq_pipeline_takubo v$(get_pipeline_version)"
@@ -93,6 +112,9 @@ record_provenance "${CONFIG}" "${PROJECT_DIR}"
 
 # Export PIPELINE_ROOT for R scripts (plot_utils.R)
 export PIPELINE_ROOT="${SCRIPT_DIR}"
+export PIPELINE_MERGE_SAMPLES="${MERGE_SAMPLES}"
+export PIPELINE_MERGE_COUNTS="${MERGE_COUNTS}"
+export PIPELINE_MERGE_EXON_COUNTS="${MERGE_EXON_COUNTS}"
 
 echo "####################################################"
 echo "# RNA-seq Analysis Pipeline  v$(get_pipeline_version)"
@@ -100,6 +122,15 @@ echo "# Project : ${PROJECT_DIR}"
 echo "# Genome  : ${GENOME}"
 echo "# Config  : ${CONFIG}"
 echo "# Conda   : ${CONDA_DEFAULT_ENV:-none}"
+if [[ -n "${MERGE_SAMPLES}" ]]; then
+    echo "# Merge samples : ${MERGE_SAMPLES}"
+fi
+if [[ -n "${MERGE_COUNTS}" ]]; then
+    echo "# Merge counts  : ${MERGE_COUNTS}"
+fi
+if [[ -n "${MERGE_EXON_COUNTS}" ]]; then
+    echo "# Merge exon    : ${MERGE_EXON_COUNTS}"
+fi
 echo "# Started : $(date)"
 echo "####################################################"
 echo ""
