@@ -22,9 +22,18 @@ echo " Genome : ${GENOME}"
 echo " Index  : ${STAR_INDEX}"
 echo "============================================"
 
+STAR_CMD="${STAR_CMD:-STAR}"
+
 # Validate
 if [[ ! -d "${STAR_INDEX}" ]]; then
     echo "ERROR: STAR index not found: ${STAR_INDEX}" >&2
+    exit 1
+fi
+
+if ! "${STAR_CMD}" --version >/dev/null 2>&1; then
+    echo "ERROR: STAR command is not runnable: ${STAR_CMD}" >&2
+    echo "       Try a working binary, for example:" >&2
+    echo "       STAR_CMD=/usr/bin/STAR bash ${SCRIPT_DIR}/01_mapping.sh ${CONFIG}" >&2
     exit 1
 fi
 
@@ -32,7 +41,7 @@ mkdir -p "${BAM_DIR}"
 
 # Read samples.tsv (skip header and comments)
 while IFS=$'\t' read -r sample_name group fq_prefix lane_suffix; do
-    [[ "${sample_name}" =~ ^#.*$ || -z "${sample_name}" ]] && continue
+    [[ "${sample_name}" == "sample_name" || "${sample_name}" =~ ^#.*$ || -z "${sample_name}" ]] && continue
 
     R1="${FASTQ_DIR}/${fq_prefix}_${lane_suffix}_1.fq.gz"
     R2="${FASTQ_DIR}/${fq_prefix}_${lane_suffix}_2.fq.gz"
@@ -58,7 +67,7 @@ while IFS=$'\t' read -r sample_name group fq_prefix lane_suffix; do
             echo "WARNING: R2 not found: ${R2}, skipping ${sample_name}" >&2
             continue
         fi
-        STAR \
+        "${STAR_CMD}" \
             --runThreadN "${STAR_THREADS}" \
             --genomeDir "${STAR_INDEX}" \
             --readFilesCommand zcat \
@@ -70,7 +79,7 @@ while IFS=$'\t' read -r sample_name group fq_prefix lane_suffix; do
             --outBAMsortingThreadN "${STAR_THREADS}"
     else
         # Single-end
-        STAR \
+        "${STAR_CMD}" \
             --runThreadN "${STAR_THREADS}" \
             --genomeDir "${STAR_INDEX}" \
             --readFilesCommand zcat \
