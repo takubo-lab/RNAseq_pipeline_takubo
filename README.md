@@ -84,7 +84,16 @@ bash run_pipeline.sh --only 5
 
 # プロジェクト指定で実行
 bash run_pipeline.sh --config /path/to/my_project/config.sh
+
+# 複数 count matrix を simple merge して DESeq2 以降を実行
+bash run_pipeline.sh --from 4 \
+	--merge-samples /path/a/samples.tsv,/path/b/samples.tsv \
+	--merge-counts /path/a/counts/count.txt,/path/b/counts/count.txt \
+	--merge-exon-counts /path/a/counts/exon_count.txt,/path/b/counts/exon_count.txt
 ```
+
+`--merge-samples`, `--merge-counts`, `--merge-exon-counts` は Step 4-6 で使用されます。
+同じ annotation / gene definition で作成した count matrix を前提に、行名で単純結合し、サンプル列を横方向にマージします。
 
 ## バージョン管理・マルチユーザー運用
 

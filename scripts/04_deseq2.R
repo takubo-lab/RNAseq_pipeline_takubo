@@ -23,6 +23,7 @@ parse_config <- function(config_path) {
   lines <- lines[!grepl("^(if|elif|else|fi|source|set|SCRIPT_DIR|PROJECT_DIR)", lines)]
   env <- list()
   for (line in lines) {
+    line <- sub("\\s+#.*$", "", line)
     m <- regmatches(line, regexpr("^([A-Za-z_][A-Za-z0-9_]*)=[\"']?([^\"']*)[\"']?", line))
     if (length(m) == 1 && nchar(m) > 0) {
       parts <- strsplit(m, "=", fixed = TRUE)[[1]]
@@ -37,13 +38,102 @@ parse_config <- function(config_path) {
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+normalize_sample_name <- function(x) {
+  gsub("-", "_", x)
+}
+
+resolve_input_path <- function(path_value, project_dir, cfg = list()) {
+  if (is.null(path_value) || !nzchar(path_value)) {
+    return("")
+  }
+
+  resolved <- trimws(path_value)
+  replacements <- c(
+    PROJECT_DIR = project_dir,
+    PIPELINE_DIR = cfg$PIPELINE_DIR %||% project_dir,
+    HOME = Sys.getenv("HOME", unset = "")
+  )
+
+  for (nm in names(replacements)) {
+    resolved <- gsub(paste0("\\$\\{", nm, "\\}"), replacements[[nm]], resolved)
+    resolved <- gsub(paste0("\\$", nm), replacements[[nm]], resolved)
+  }
+
+  path.expand(resolved)
+}
+
+parse_path_list <- function(x, project_dir, cfg = list()) {
+  if (is.null(x) || !nzchar(x)) {
+    return(character())
+  }
+
+  unique(vapply(strsplit(x, ",", fixed = TRUE)[[1]], function(p) {
+    resolve_input_path(p, project_dir, cfg)
+  }, character(1)))
+}
+
+read_sample_tables <- function(sample_files) {
+  sample_list <- lapply(sample_files, function(path) {
+    if (!file.exists(path)) {
+      stop("ERROR: samples.tsv not found: ", path)
+    }
+    dat <- fread(path, sep = "\t", header = TRUE)
+    dat <- dat[!grepl("^#", dat$sample_name), ]
+    colnames(dat) <- c("sample_name", "group", "fq_prefix", "lane_suffix")
+    dat
+  })
+
+  sample_info <- dplyr::bind_rows(sample_list)
+  dup <- sample_info$sample_name[duplicated(sample_info$sample_name)]
+  if (length(dup) > 0) {
+    stop("ERROR: Duplicate sample names found across merged sample sheets: ",
+         paste(unique(dup), collapse = ", "))
+  }
+  sample_info
+}
+
+read_count_tables <- function(count_files) {
+  count_list <- lapply(count_files, function(path) {
+    if (!file.exists(path)) {
+      stop("ERROR: Count file not found: ", path)
+    }
+    fread(path, header = TRUE)
+  })
+
+  geneid_col <- colnames(count_list[[1]])[1]
+  merged <- Reduce(function(x, y) dplyr::full_join(x, y, by = geneid_col), count_list)
+  merged[is.na(merged)] <- 0
+
+  dup_cols <- colnames(merged)[duplicated(colnames(merged))]
+  if (length(dup_cols) > 0) {
+    stop("ERROR: Duplicate count columns found across merged count files: ",
+         paste(unique(dup_cols), collapse = ", "))
+  }
+
+  merged
+}
+
 cfg <- parse_config(config_file)
 
 # Resolve project directory
 project_dir <- getwd()
-samples_tsv <- file.path(project_dir, "samples.tsv")
-count_file  <- file.path(project_dir, "counts", "count.txt")
 output_dir  <- file.path(project_dir, "DESeq2")
+
+merge_samples_env <- Sys.getenv("PIPELINE_MERGE_SAMPLES", unset = "")
+merge_counts_env  <- Sys.getenv("PIPELINE_MERGE_COUNTS", unset = "")
+
+sample_files <- parse_path_list(merge_samples_env, project_dir, cfg)
+count_files  <- parse_path_list(merge_counts_env, project_dir, cfg)
+
+if (length(sample_files) == 0) {
+  sample_files <- file.path(project_dir, "samples.tsv")
+}
+if (length(count_files) == 0) {
+  count_files <- file.path(project_dir, "counts", "count.txt")
+}
+
+samples_tsv <- paste(sample_files, collapse = ", ")
+count_file  <- paste(count_files, collapse = ", ")
 
 min_count   <- as.integer(cfg$MIN_COUNT_FILTER %||% 50)
 pca_top     <- as.integer(cfg$PCA_TOP_GENES %||% 500)
@@ -88,12 +178,10 @@ cat(" Output     : ", output_dir, "\n")
 cat("============================================\n")
 
 # --- Read sample info ---
-sample_info <- fread(samples_tsv, sep = "\t", header = TRUE)
-sample_info <- sample_info[!grepl("^#", sample_info$sample_name), ]
-colnames(sample_info) <- c("sample_name", "group", "fq_prefix", "lane_suffix")
+sample_info <- read_sample_tables(sample_files)
 
 # --- Read count matrix ---
-raw <- fread(count_file, header = TRUE)
+raw <- read_count_tables(count_files)
 geneid_col <- colnames(raw)[1]
 rawCounts  <- raw %>%
   tibble::column_to_rownames(geneid_col)
@@ -102,19 +190,24 @@ rawCounts  <- raw %>%
 clean_names <- colnames(rawCounts)
 clean_names <- gsub(".*[/\\\\]", "", clean_names)
 clean_names <- gsub("_Aligned\\.sortedByCoord\\.out\\.bam$", "", clean_names)
-clean_names <- gsub("-", "_", clean_names)
 colnames(rawCounts) <- clean_names
 
 # Match samples to columns
-matched <- sample_info$sample_name[sample_info$sample_name %in% clean_names]
-if (length(matched) == 0) {
+count_keys <- normalize_sample_name(clean_names)
+sample_keys <- normalize_sample_name(sample_info$sample_name)
+matched_idx <- match(sample_keys, count_keys)
+
+if (all(is.na(matched_idx))) {
   stop("ERROR: No sample names in samples.tsv match count matrix columns.\n",
        "  Count columns: ", paste(clean_names[1:min(5, length(clean_names))], collapse = ", "), "\n",
        "  Sample names : ", paste(sample_info$sample_name[1:min(5, nrow(sample_info))], collapse = ", "))
 }
 
-rawCounts <- rawCounts[, matched, drop = FALSE]
-sample_info <- sample_info[match(matched, sample_info$sample_name), ]
+sample_info <- sample_info[!is.na(matched_idx), ]
+matched_idx <- matched_idx[!is.na(matched_idx)]
+
+rawCounts <- rawCounts[, matched_idx, drop = FALSE]
+colnames(rawCounts) <- sample_info$sample_name
 
 samples <- factor(sample_info$sample_name, levels = sample_info$sample_name)
 groups  <- factor(sample_info$group)
@@ -238,8 +331,12 @@ plot_volcano <- function(deseq2Results, gene_list = c(""), file_out,
 
   p <- ggplot(df, aes(x = log2FoldChange, y = -log10(padj), fill = sig)) +
     geom_point(pch = 21, aes(size = mark), alpha = vcfg$alpha_ns) +
-    scale_fill_manual(values = c(down = vcols["down"], marked = vcols["marked"],
-                                 non = vcols["ns"], up = vcols["up"])) +
+    scale_fill_manual(values = c(
+      down = unname(vcols["down"]),
+      marked = unname(vcols["marked"]),
+      non = unname(vcols["ns"]),
+      up = unname(vcols["up"])
+    )) +
     scale_size_manual(values = c(vcfg$point_size, vcfg$marked_point_size)) +
     geom_text_repel(data = filter(df, mark & log2FoldChange > 0),
                     aes(label = geneID), size = vcfg$label_size, max.overlaps = 10,

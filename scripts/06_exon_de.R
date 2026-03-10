@@ -23,6 +23,7 @@ parse_config <- function(config_path) {
   lines <- lines[!grepl("^(if|elif|else|fi|source|set|SCRIPT_DIR|PROJECT_DIR)", lines)]
   env <- list()
   for (line in lines) {
+    line <- sub("\\s+#.*$", "", line)
     m <- regmatches(line, regexpr("^([A-Za-z_][A-Za-z0-9_]*)=[\"']?([^\"']*)[\"']?", line))
     if (length(m) == 1 && nchar(m) > 0) {
       parts <- strsplit(m, "=", fixed = TRUE)[[1]]
@@ -37,12 +38,101 @@ parse_config <- function(config_path) {
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+normalize_sample_name <- function(x) {
+  gsub("-", "_", x)
+}
+
+resolve_input_path <- function(path_value, project_dir, cfg = list()) {
+  if (is.null(path_value) || !nzchar(path_value)) {
+    return("")
+  }
+
+  resolved <- trimws(path_value)
+  replacements <- c(
+    PROJECT_DIR = project_dir,
+    PIPELINE_DIR = cfg$PIPELINE_DIR %||% project_dir,
+    HOME = Sys.getenv("HOME", unset = "")
+  )
+
+  for (nm in names(replacements)) {
+    resolved <- gsub(paste0("\\$\\{", nm, "\\}"), replacements[[nm]], resolved)
+    resolved <- gsub(paste0("\\$", nm), replacements[[nm]], resolved)
+  }
+
+  path.expand(resolved)
+}
+
+parse_path_list <- function(x, project_dir, cfg = list()) {
+  if (is.null(x) || !nzchar(x)) {
+    return(character())
+  }
+
+  unique(vapply(strsplit(x, ",", fixed = TRUE)[[1]], function(p) {
+    resolve_input_path(p, project_dir, cfg)
+  }, character(1)))
+}
+
+read_sample_tables <- function(sample_files) {
+  sample_list <- lapply(sample_files, function(path) {
+    if (!file.exists(path)) {
+      stop("ERROR: samples.tsv not found: ", path)
+    }
+    dat <- fread(path, sep = "\t", header = TRUE)
+    dat <- dat[!grepl("^#", dat$sample_name), ]
+    colnames(dat) <- c("sample_name", "group", "fq_prefix", "lane_suffix")
+    dat
+  })
+
+  sample_info <- dplyr::bind_rows(sample_list)
+  dup <- sample_info$sample_name[duplicated(sample_info$sample_name)]
+  if (length(dup) > 0) {
+    stop("ERROR: Duplicate sample names found across merged sample sheets: ",
+         paste(unique(dup), collapse = ", "))
+  }
+  sample_info
+}
+
+read_exon_count_tables <- function(exon_files) {
+  exon_list <- lapply(exon_files, function(path) {
+    if (!file.exists(path)) {
+      stop("ERROR: Exon count file not found: ", path)
+    }
+    fread(path, header = TRUE)
+  })
+
+  key_cols <- colnames(exon_list[[1]])[1:6]
+  merged <- Reduce(function(x, y) dplyr::full_join(x, y, by = key_cols), exon_list)
+  merged[is.na(merged)] <- 0
+
+  dup_cols <- colnames(merged)[duplicated(colnames(merged))]
+  if (length(dup_cols) > 0) {
+    stop("ERROR: Duplicate exon count columns found across merged exon count files: ",
+         paste(unique(dup_cols), collapse = ", "))
+  }
+
+  merged
+}
+
 cfg <- parse_config(config_file)
 
 project_dir <- getwd()
-samples_tsv <- file.path(project_dir, "samples.tsv")
-exon_count  <- file.path(project_dir, "counts", "exon_count.txt")
 output_dir  <- file.path(project_dir, "exon_DE")
+
+merge_samples_env <- Sys.getenv("PIPELINE_MERGE_SAMPLES", unset = "")
+merge_exon_env    <- Sys.getenv("PIPELINE_MERGE_EXON_COUNTS", unset = "")
+
+sample_files <- parse_path_list(merge_samples_env, project_dir, cfg)
+exon_files   <- parse_path_list(merge_exon_env, project_dir, cfg)
+
+if (length(sample_files) == 0) {
+  sample_files <- file.path(project_dir, "samples.tsv")
+}
+if (length(exon_files) == 0) {
+  exon_files <- file.path(project_dir, "counts", "exon_count.txt")
+}
+
+samples_tsv <- paste(sample_files, collapse = ", ")
+exon_count  <- paste(exon_files, collapse = ", ")
 
 # --- Load packages ---
 suppressPackageStartupMessages({
@@ -80,13 +170,11 @@ cat(" Output     : ", output_dir, "\n")
 cat("============================================\n")
 
 # --- Read sample info ---
-sample_info <- fread(samples_tsv, sep = "\t", header = TRUE)
-sample_info <- sample_info[!grepl("^#", sample_info$sample_name), ]
-colnames(sample_info) <- c("sample_name", "group", "fq_prefix", "lane_suffix")
+sample_info <- read_sample_tables(sample_files)
 
 # --- Read exon count matrix ---
 # Format from featureCounts -f: Geneid, Chr, Start, End, Strand, Length, counts...
-exon_raw <- fread(exon_count, header = TRUE)
+exon_raw <- read_exon_count_tables(exon_files)
 
 # Create exon ID: gene:chr:start-end
 exon_annot <- exon_raw[, 1:6]
@@ -103,16 +191,21 @@ count_mat <- round(count_mat)
 clean_names <- colnames(count_mat)
 clean_names <- gsub(".*[/\\\\]", "", clean_names)
 clean_names <- gsub("_Aligned\\.sortedByCoord\\.out\\.bam$", "", clean_names)
-clean_names <- gsub("-", "_", clean_names)
 colnames(count_mat) <- clean_names
 
 # Match to samples
-matched <- sample_info$sample_name[sample_info$sample_name %in% clean_names]
-if (length(matched) == 0) {
+count_keys <- normalize_sample_name(clean_names)
+sample_keys <- normalize_sample_name(sample_info$sample_name)
+matched_idx <- match(sample_keys, count_keys)
+
+if (all(is.na(matched_idx))) {
   stop("ERROR: No sample names match exon count columns.")
 }
-count_mat   <- count_mat[, matched, drop = FALSE]
-sample_info <- sample_info[match(matched, sample_info$sample_name), ]
+sample_info <- sample_info[!is.na(matched_idx), ]
+matched_idx <- matched_idx[!is.na(matched_idx)]
+
+count_mat <- count_mat[, matched_idx, drop = FALSE]
+colnames(count_mat) <- sample_info$sample_name
 
 # --- Create DEXSeqDataSet ---
 # Prepare annotation

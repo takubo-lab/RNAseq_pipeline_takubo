@@ -21,6 +21,7 @@ parse_config <- function(config_path) {
   lines <- lines[!grepl("^(if|elif|else|fi|source|set|SCRIPT_DIR|PROJECT_DIR)", lines)]
   env <- list()
   for (line in lines) {
+    line <- sub("\\s+#.*$", "", line)
     m <- regmatches(line, regexpr("^([A-Za-z_][A-Za-z0-9_]*)=[\"']?([^\"']*)[\"']?", line))
     if (length(m) == 1 && nchar(m) > 0) {
       parts <- strsplit(m, "=", fixed = TRUE)[[1]]
@@ -35,6 +36,30 @@ parse_config <- function(config_path) {
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+resolve_config_path <- function(path_value, project_dir, cfg = list()) {
+  if (is.null(path_value) || !nzchar(path_value)) {
+    return("")
+  }
+
+  resolved <- path_value
+  replacements <- c(
+    PROJECT_DIR = project_dir,
+    PIPELINE_DIR = cfg$PIPELINE_DIR %||% project_dir,
+    HOME = Sys.getenv("HOME", unset = "")
+  )
+
+  for (nm in names(replacements)) {
+    resolved <- gsub(paste0("\\$\\{", nm, "\\}"), replacements[[nm]], resolved)
+    resolved <- gsub(paste0("\\$", nm), replacements[[nm]], resolved)
+  }
+
+  path.expand(resolved)
+}
+
+sanitize_filename <- function(x) {
+  gsub("[^A-Za-z0-9._-]", "_", x)
+}
+
 cfg <- parse_config(config_file)
 
 project_dir  <- getwd()
@@ -47,7 +72,7 @@ fgsea_max    <- as.integer(cfg$FGSEA_MAX_SIZE %||% 500)
 fgsea_nperm  <- as.integer(cfg$FGSEA_NPERM %||% 10000)
 fgsea_nproc  <- as.integer(cfg$FGSEA_NPROC %||% 12)
 fgsea_padj   <- as.numeric(cfg$FGSEA_PADJ %||% 0.05)
-custom_gmt   <- cfg$CUSTOM_GMT %||% ""
+custom_gmt   <- resolve_config_path(cfg$CUSTOM_GMT %||% "", project_dir, cfg)
 
 species <- ifelse(genome == "hg38", "Homo sapiens", "Mus musculus")
 
@@ -91,33 +116,87 @@ cat("============================================\n")
 msig_categories <- c("H", "C2", "C3", "C4", "C5", "C6", "C7")
 msigdb_list <- lapply(msig_categories, function(cat) {
   msigdb <- msigdbr::msigdbr(species = species, category = cat)
-  split(msigdb$gene_symbol, msigdb$gs_name)
+  split(toupper(msigdb$gene_symbol), msigdb$gs_name) %>%
+    lapply(function(x) unique(x[nzchar(x)]))
 })
 names(msigdb_list) <- msig_categories
 
 # Add custom gene set if available
 if (nchar(custom_gmt) > 0 && file.exists(custom_gmt)) {
   cat("Loading custom gene set: ", custom_gmt, "\n")
-  gmt_raw <- fread(custom_gmt, sep = "\t", header = FALSE, fill = TRUE, quote = "")
-  gmt_t   <- t(gmt_raw) %>% data.frame()
-  colnames(gmt_t) <- gmt_t[1, ]
-  gmt_t <- gmt_t[-c(1, 2), , drop = FALSE]
-  gmt_list <- as.list(gmt_t)
-  gmt_list <- lapply(gmt_list, function(x) {
-    x <- toupper(x)
-    x[x != ""]
-  })
+  gmt_lines <- readLines(custom_gmt, warn = FALSE)
+  gmt_lines <- gmt_lines[nzchar(trimws(gmt_lines))]
+  gmt_split <- strsplit(gmt_lines, "\t", fixed = TRUE)
+  gmt_list <- setNames(vector("list", length(gmt_split)), vapply(gmt_split, `[[`, character(1), 1))
+  for (i in seq_along(gmt_split)) {
+    entries <- gmt_split[[i]]
+    genes <- unique(toupper(entries[-c(1, 2)]))
+    genes <- genes[nzchar(genes)]
+    gmt_list[[i]] <- genes
+  }
   custom_name <- tools::file_path_sans_ext(basename(custom_gmt))
   msigdb_list[[custom_name]] <- gmt_list
   cat("  Added ", length(gmt_list), " custom sets from ", custom_name, "\n")
+} else if (nchar(custom_gmt) > 0) {
+  warning("Custom gene set file not found: ", custom_gmt)
+}
+
+save_enrichment_plots <- function(fgsea_res, pathways, ranks, comp_dir, comparison_name, category_name) {
+  if (!(category_name == "H" || !(category_name %in% msig_categories))) {
+    return(invisible(NULL))
+  }
+
+  plot_dir <- file.path(comp_dir, paste0("enrichment_", sanitize_filename(category_name)))
+  dir.create(plot_dir, showWarnings = FALSE, recursive = TRUE)
+
+  targets <- fgsea_res[0, , drop = FALSE]
+  if (category_name == "H") {
+    targets <- fgsea_res %>% filter(!is.na(padj) & padj < fgsea_padj) %>% arrange(padj)
+  } else {
+    targets <- fgsea_res %>% filter(!is.na(NES)) %>% arrange(padj)
+  }
+
+  if (nrow(targets) == 0) {
+    return(invisible(NULL))
+  }
+
+  for (pathway_name in targets$pathway) {
+    genes <- pathways[[pathway_name]]
+    if (is.null(genes) || length(genes) == 0) next
+
+    p <- fgsea::plotEnrichment(genes, ranks) +
+      labs(
+        title = paste0("Enrichment: ", pathway_name),
+        subtitle = paste0(comparison_name, " — ", category_name),
+        x = "Rank in ordered gene list",
+        y = "Enrichment score"
+      ) +
+      theme_pipeline(pcfg)
+
+    save_plot(
+      p,
+      paste0(
+        "fgsea_enrichment_",
+        sanitize_filename(comparison_name),
+        "_",
+        sanitize_filename(category_name),
+        "_",
+        sanitize_filename(pathway_name)
+      ),
+      type = "fgsea_bar",
+      outdir = plot_dir,
+      cfg = pcfg
+    )
+  }
 }
 
 # --- fGSEA function ---
 run_fgsea <- function(de_file, gene_set_list) {
   de <- fread(de_file, sep = "\t")
   ranks <- de$log2FoldChange
-  names(ranks) <- de$geneID
+  names(ranks) <- toupper(de$geneID)
   ranks <- na.omit(ranks)
+  ranks <- sort(ranks, decreasing = TRUE)
 
   # Get comparison name
   file_name <- basename(de_file)
@@ -161,7 +240,7 @@ run_fgsea <- function(de_file, gene_set_list) {
         p_bar <- ggplot(top_paths, aes(x = reorder(pathway, NES), y = NES,
                                         fill = ifelse(NES > 0, "up", "down"))) +
           geom_col(width = pcfg$fgsea$bar_width %||% 0.7) +
-          scale_fill_manual(values = c(up = vcols["up"], down = vcols["down"]),
+          scale_fill_manual(values = c(up = unname(vcols["up"]), down = unname(vcols["down"])),
                             guide = "none") +
           coord_flip() +
           labs(x = "", y = "Normalized Enrichment Score (NES)",
@@ -174,6 +253,8 @@ run_fgsea <- function(de_file, gene_set_list) {
                   type = "fgsea_bar", outdir = comp_dir, cfg = pcfg)
       }
     }
+
+    save_enrichment_plots(fgsea_res, gene_set_list[[i]], ranks, comp_dir, file_name, cat_names[i])
   }
 }
 
