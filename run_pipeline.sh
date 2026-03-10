@@ -9,6 +9,7 @@
 #   bash run_pipeline.sh                    # Run all steps
 #   bash run_pipeline.sh --from 3           # Start from step 3
 #   bash run_pipeline.sh --only 4           # Run only step 4
+#   bash run_pipeline.sh --only 4,5         # Run only steps 4 and 5
 #   bash run_pipeline.sh --config my.sh     # Use custom config
 #   bash run_pipeline.sh --from 4 \
 #       --merge-samples a/samples.tsv,b/samples.tsv \
@@ -34,10 +35,25 @@ source "${SCRIPT_DIR}/scripts/utils.sh"
 CONFIG="${SCRIPT_DIR}/config.sh"
 FROM_STEP=1
 ONLY_STEP=0
+ONLY_STEPS=()
 FORCE="false"
 MERGE_SAMPLES=""
 MERGE_COUNTS=""
 MERGE_EXON_COUNTS=""
+
+parse_step_list() {
+    local raw="${1}"
+    local item
+    IFS=',' read -ra step_items <<< "${raw}"
+    for item in "${step_items[@]}"; do
+        item="$(echo "${item}" | xargs)"
+        if [[ ! "${item}" =~ ^[1-6]$ ]]; then
+            log_error "Invalid step in --only: ${item} (allowed: 1-6)"
+            exit 1
+        fi
+        ONLY_STEPS+=("${item}")
+    done
+}
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -52,6 +68,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --only)
             ONLY_STEP="$2"
+            parse_step_list "$2"
             shift 2
             ;;
         --force)
@@ -137,7 +154,15 @@ echo ""
 
 should_run() {
     local step=$1
-    if [[ ${ONLY_STEP} -ne 0 ]]; then
+    if [[ ${#ONLY_STEPS[@]} -gt 0 ]]; then
+        local only_step
+        for only_step in "${ONLY_STEPS[@]}"; do
+            if [[ ${step} -eq ${only_step} ]]; then
+                return 0
+            fi
+        done
+        return 1
+    elif [[ ${ONLY_STEP} -ne 0 ]]; then
         [[ ${step} -eq ${ONLY_STEP} ]]
     else
         [[ ${step} -ge ${FROM_STEP} ]]

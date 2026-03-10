@@ -72,15 +72,50 @@ parse_path_list <- function(x, project_dir, cfg = list()) {
   }, character(1)))
 }
 
+read_sample_table <- function(path) {
+  lines <- readLines(path, warn = FALSE)
+  required_cols <- c("sample_name", "group", "fq_prefix", "lane_suffix")
+
+  if (length(lines) == 0) {
+    stop("ERROR: samples.tsv is empty: ", path)
+  }
+
+  normalized <- sub("^\\s*#\\s*", "", lines)
+  header_idx <- which(vapply(normalized, function(line) {
+    fields <- strsplit(trimws(line), "\\t")[[1]]
+    length(fields) >= length(required_cols) && identical(fields[seq_along(required_cols)], required_cols)
+  }, logical(1)))[1]
+
+  if (!is.na(header_idx) && grepl("^\\s*#", lines[header_idx])) {
+    lines[header_idx] <- normalized[header_idx]
+  }
+
+  lines <- lines[nzchar(trimws(lines))]
+  lines <- lines[!grepl("^\\s*#", lines)]
+
+  dat <- fread(
+    text = paste(lines, collapse = "\n"),
+    sep = "\t",
+    header = TRUE,
+    blank.lines.skip = TRUE
+  )
+
+  missing_cols <- setdiff(required_cols, colnames(dat))
+  if (length(missing_cols) > 0) {
+    stop("ERROR: Missing required columns in samples.tsv: ",
+         paste(missing_cols, collapse = ", "),
+         " (file: ", path, ")")
+  }
+
+  dat[, c("sample_name", "group", "fq_prefix", "lane_suffix"), with = FALSE]
+}
+
 read_sample_tables <- function(sample_files) {
   sample_list <- lapply(sample_files, function(path) {
     if (!file.exists(path)) {
       stop("ERROR: samples.tsv not found: ", path)
     }
-    dat <- fread(path, sep = "\t", header = TRUE)
-    dat <- dat[!grepl("^#", dat$sample_name), ]
-    colnames(dat) <- c("sample_name", "group", "fq_prefix", "lane_suffix")
-    dat
+    read_sample_table(path)
   })
 
   sample_info <- dplyr::bind_rows(sample_list)

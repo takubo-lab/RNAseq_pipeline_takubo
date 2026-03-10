@@ -13,6 +13,24 @@ log_info()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO]  $*"; }
 log_warn()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN]  $*" >&2; }
 log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" >&2; }
 
+sample_header_line() {
+    local file_path="${1}"
+    awk '
+        NF {
+            normalized = $0
+            sub(/^[[:space:]]*#[[:space:]]*/, "", normalized)
+            if (normalized ~ /(^|[[:space:]])sample_name([[:space:]]|$)/ && normalized ~ /(^|[[:space:]])group([[:space:]]|$)/ && normalized ~ /(^|[[:space:]])fq_prefix([[:space:]]|$)/ && normalized ~ /(^|[[:space:]])lane_suffix([[:space:]]|$)/) {
+                print normalized
+                exit
+            }
+            if ($0 !~ /^[[:space:]]*#/) {
+                print $0
+                exit
+            }
+        }
+    ' "${file_path}" | head -n 1
+}
+
 # ---------------------------------------------------------------------------
 # Pipeline version
 # ---------------------------------------------------------------------------
@@ -96,7 +114,11 @@ validate_samples() {
 
     # Check header
     local header
-    header="$(head -1 "${SAMPLES_TSV}")"
+    header="$(sample_header_line "${SAMPLES_TSV}")"
+    if [[ -z "${header}" ]]; then
+        log_error "No sample table header found in ${SAMPLES_TSV}"
+        return 1
+    fi
     for col in sample_name group fq_prefix lane_suffix; do
         if ! echo "${header}" | grep -qw "${col}"; then
             log_error "Missing column '${col}' in ${SAMPLES_TSV}"
@@ -106,16 +128,16 @@ validate_samples() {
 
     # Check for duplicate sample names
     local dup_count
-    dup_count="$(tail -n +2 "${SAMPLES_TSV}" | awk -F'\t' '{print $1}' | sort | uniq -d | wc -l)"
+    dup_count="$(awk -F'\t' 'NF && $0 !~ /^#/ && $1 != "sample_name" {print $1}' "${SAMPLES_TSV}" | sort | uniq -d | wc -l)"
     if [[ "${dup_count}" -gt 0 ]]; then
         log_error "Duplicate sample names found in ${SAMPLES_TSV}:"
-        tail -n +2 "${SAMPLES_TSV}" | awk -F'\t' '{print $1}' | sort | uniq -d >&2
+        awk -F'\t' 'NF && $0 !~ /^#/ && $1 != "sample_name" {print $1}' "${SAMPLES_TSV}" | sort | uniq -d >&2
         return 1
     fi
 
     # Check that at least 2 groups exist
     local group_count
-    group_count="$(tail -n +2 "${SAMPLES_TSV}" | awk -F'\t' '{print $2}' | sort -u | wc -l)"
+    group_count="$(awk -F'\t' 'NF && $0 !~ /^#/ && $1 != "sample_name" {print $2}' "${SAMPLES_TSV}" | sort -u | wc -l)"
     if [[ "${group_count}" -lt 2 ]]; then
         log_error "At least 2 groups required in ${SAMPLES_TSV}, found ${group_count}"
         return 1
@@ -124,7 +146,7 @@ validate_samples() {
     # Check FASTQ files exist (optional — warn only)
     local missing=0
     while IFS=$'\t' read -r sname group prefix suffix; do
-        [[ "${sname}" == "sample_name" ]] && continue   # skip header
+        [[ "${sname}" == "sample_name" || "${sname}" =~ ^#.*$ || -z "${sname}" ]] && continue
         local r1="${FASTQ_DIR}/${prefix}_${suffix}_1.fq.gz"
         if [[ ! -f "${r1}" ]]; then
             log_warn "FASTQ not found: ${r1} (sample: ${sname})"
@@ -137,7 +159,7 @@ validate_samples() {
     fi
 
     local sample_count
-    sample_count="$(tail -n +2 "${SAMPLES_TSV}" | wc -l)"
+    sample_count="$(awk 'NF && $0 !~ /^#/ && $1 != "sample_name"' "${SAMPLES_TSV}" | wc -l)"
     log_info "Validated ${sample_count} samples in ${group_count} groups"
     return 0
 }

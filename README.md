@@ -82,6 +82,9 @@ bash run_pipeline.sh --from 4
 # 特定のステップのみ実行
 bash run_pipeline.sh --only 5
 
+# 複数ステップのみ実行
+bash run_pipeline.sh --only 4,5
+
 # プロジェクト指定で実行
 bash run_pipeline.sh --config /path/to/my_project/config.sh
 
