@@ -27,6 +27,12 @@ parse_config <- function(config_path) {
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+normalize_sample_name <- function(x) {
+  normalized <- trimws(as.character(x))
+  normalized <- gsub("[^A-Za-z0-9]+", "_", normalized)
+  tolower(normalized)
+}
+
 resolve_input_path <- function(path_value, project_dir, cfg = list()) {
   if (is.null(path_value) || !nzchar(path_value)) {
     return("")
@@ -384,9 +390,15 @@ expr_df$Gene <- NULL
 expr_mat <- as.matrix(expr_df)
 storage.mode(expr_mat) <- "double"
 
-sample_match <- match(sample_info$sample_name, colnames(expr_mat))
+count_keys <- normalize_sample_name(colnames(expr_mat))
+sample_keys <- normalize_sample_name(sample_info$sample_name)
+sample_match <- match(sample_keys, count_keys)
 if (all(is.na(sample_match))) {
-  stop("ERROR: No sample names in samples.tsv match Counts.normalized.txt columns.")
+  count_preview <- colnames(expr_mat)[seq_len(min(5, ncol(expr_mat)))]
+  sample_preview <- sample_info$sample_name[seq_len(min(5, nrow(sample_info)))]
+  stop("ERROR: No sample names in samples.tsv match Counts.normalized.txt columns.\n",
+       "  Count columns: ", paste(count_preview, collapse = ", "), "\n",
+       "  Sample names : ", paste(sample_preview, collapse = ", "))
 }
 sample_info <- sample_info[!is.na(sample_match), ]
 expr_mat <- expr_mat[, sample_match[!is.na(sample_match)], drop = FALSE]

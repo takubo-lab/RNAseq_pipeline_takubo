@@ -39,7 +39,9 @@ parse_config <- function(config_path) {
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
 normalize_sample_name <- function(x) {
-  gsub("-", "_", x)
+  normalized <- trimws(as.character(x))
+  normalized <- gsub("[^A-Za-z0-9]+", "_", normalized)
+  tolower(normalized)
 }
 
 resolve_input_path <- function(path_value, project_dir, cfg = list()) {

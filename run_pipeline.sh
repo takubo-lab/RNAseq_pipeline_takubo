@@ -122,8 +122,30 @@ fi
 
 source "${CONFIG}"
 
+resolve_rscript() {
+    if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/Rscript" ]]; then
+        echo "${CONDA_PREFIX}/bin/Rscript"
+        return 0
+    fi
+
+    if command -v Rscript >/dev/null 2>&1; then
+        command -v Rscript
+        return 0
+    fi
+
+    return 1
+}
+
+RSCRIPT_BIN="$(resolve_rscript || true)"
+if [[ -z "${RSCRIPT_BIN}" ]]; then
+    log_error "Rscript was not found. Activate the environment and try again."
+    release_lock "${PROJECT_DIR}"
+    exit 1
+fi
+
 # --- Pre-flight checks ---
 log_info "Pipeline version: $(get_pipeline_version)"
+log_info "Using Rscript: ${RSCRIPT_BIN}"
 validate_samples "${CONFIG}"
 acquire_lock "${PROJECT_DIR}"
 record_provenance "${CONFIG}" "${PROJECT_DIR}"
@@ -195,7 +217,7 @@ fi
 if should_run 4; then
     echo ">>> Step 4: DESeq2"
     cd "${PROJECT_DIR}"
-    Rscript "${SCRIPT_DIR}/scripts/04_deseq2.R" "${CONFIG}"
+    "${RSCRIPT_BIN}" "${SCRIPT_DIR}/scripts/04_deseq2.R" "${CONFIG}"
     echo ""
 fi
 
@@ -203,7 +225,7 @@ fi
 if should_run 5; then
     echo ">>> Step 5: fGSEA"
     cd "${PROJECT_DIR}"
-    Rscript "${SCRIPT_DIR}/scripts/05_fgsea.R" "${CONFIG}"
+    "${RSCRIPT_BIN}" "${SCRIPT_DIR}/scripts/05_fgsea.R" "${CONFIG}"
     echo ""
 fi
 
@@ -211,7 +233,7 @@ fi
 if should_run 6; then
     echo ">>> Step 6: ssGSEA and selected-gene visualization"
     cd "${PROJECT_DIR}"
-    Rscript "${SCRIPT_DIR}/scripts/06_ssgsea_heatmap.R" "${CONFIG}"
+    "${RSCRIPT_BIN}" "${SCRIPT_DIR}/scripts/06_ssgsea_heatmap.R" "${CONFIG}"
     echo ""
 fi
 
@@ -219,7 +241,7 @@ fi
 if should_run 7; then
     echo ">>> Step 7: Exon-level DE (DEXSeq)"
     cd "${PROJECT_DIR}"
-    Rscript "${SCRIPT_DIR}/scripts/07_exon_de.R" "${CONFIG}"
+    "${RSCRIPT_BIN}" "${SCRIPT_DIR}/scripts/07_exon_de.R" "${CONFIG}"
     echo ""
 fi
 

@@ -196,7 +196,7 @@ verify_tools() {
   # R パッケージ検証
   info "R パッケージを検証中..."
   Rscript -e '
-    pkgs <- c("DESeq2", "DEXSeq", "fgsea", "msigdbr", "BiocParallel",
+    pkgs <- c("DESeq2", "DEXSeq", "fgsea", "GSVA", "msigdbr", "BiocParallel",
               "tidyverse", "data.table", "ggplot2", "ggrepel", "umap",
               "magrittr", "yaml", "pheatmap")
     for (p in pkgs) {
