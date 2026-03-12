@@ -73,6 +73,14 @@ Sample1_pre	pre	Sample1	L5
 Sample1_post	post	Sample1_post	L5
 ```
 
+**`plot_targets.tsv`** — volcano highlight、ssGSEA、heatmap、個別遺伝子グラフの対象を記載:
+```
+target_name	target_type	ssgsea	heatmap	gene_plot	volcano_highlight
+REACTOME_DNA_DOUBLE_STRAND_BREAK_RESPONSE	geneset	1	0	0	0
+DDIT3	gene	0	1	1	0
+MMP9	gene	0	1	1	1
+```
+
 ### 3. FASTQファイルを配置
 
 ```bash
@@ -116,22 +124,7 @@ bash run_pipeline.sh --from 4 \
 
 ### `plot_config.default.yml` / `plot_config.yml`
 
-single-sample GSEA で使う gene set 名は `ssgsea.gene_sets`、ヒートマップと個別グラフで使う遺伝子は `selected_genes.genes` に記述します。gene set の参照元は MSigDB と、`config.sh` の `SSGSEA_GMT_FILES` で指定した `Gene_set/` 配下の GMT ファイルです。
-
-```yml
-ssgsea:
-	gene_sets:
-		- "REACTOME_DNA_DOUBLE_STRAND_BREAK_RESPONSE"
-		- "WONG_ADULT_TISSUE_STEM_MODULE"
-
-selected_genes:
-	genes:
-		- "DDIT3"
-		- "BRCA1"
-		- "MMP9"
-```
-
-個人設定を使う場合は以下のようにテンプレートを複製します。
+`plot_config` は表示スタイルだけを管理します。表示する gene set 名や遺伝子名、volcano highlight は `plot_targets.tsv` で管理します。個人設定を使う場合は以下のようにテンプレートを複製します。
 
 ```bash
 cp plot_config.default.yml plot_config.yml
@@ -142,6 +135,7 @@ cp plot_config.default.yml plot_config.yml
 Step 6 用の主なパラメーター:
 
 ```bash
+PLOT_TARGETS_FILE="${PROJECT_DIR}/plot_targets.tsv"
 SSGSEA_OUTPUT_DIR="${PROJECT_DIR}/single_sample"
 SSGSEA_MSIG_CATEGORIES="H,C2,C3,C4,C5,C6,C7"
 SSGSEA_GMT_FILES="Human_old_HSC_set2.gmt,HSC_set3.gmt"
@@ -156,8 +150,27 @@ GENE_PLOT_PAIRED=true
 
 - `SSGSEA_MSIG_CATEGORIES`: 検索する MSigDB category
 - `SSGSEA_GMT_FILES`: `Gene_set/` 配下から ssGSEA の候補 gene set として読み込む GMT ファイル名。カンマ区切りで複数指定可
+- `PLOT_TARGETS_FILE`: volcano highlight、ssGSEA、heatmap、個別遺伝子グラフ用の target sheet
 - `GENE_PLOT_GROUPS`: 個別遺伝子グラフを描く 2 群。空欄なら 2 群実験時に自動検出
 - `GENE_PLOT_PAIRED`: `sample_name` の末尾が `_group名` 形式ならペアとして線で接続
+
+### `plot_targets.tsv`
+
+Excel などからコピペしやすいよう、行に target、列に用途を持つシートを使います。デフォルトは TSV ですが、`PLOT_TARGETS_FILE` で CSV も指定できます。
+
+```tsv
+target_name	target_type	ssgsea	heatmap	gene_plot	volcano_highlight
+REACTOME_DNA_DOUBLE_STRAND_BREAK_RESPONSE	geneset	1	0	0	0
+DDIT3	gene	0	1	1	0
+BRCA1	gene	0	1	1	0
+MMP9	gene	0	1	1	1
+```
+
+- `target_type`: `gene` または `geneset`
+- `ssgsea`: Step 6 の ssGSEA ヒートマップ対象
+- `heatmap`: 遺伝子ヒートマップ対象
+- `gene_plot`: 個別遺伝子グラフ対象
+- `volcano_highlight`: Step 4 の volcano plot ハイライト対象
 
 ## バージョン管理・マルチユーザー運用
 
@@ -191,6 +204,7 @@ git push origin v1.1.0
 RNAseq_pipeline_takubo/
 ├── VERSION                # パイプラインバージョン
 ├── config.sh              # パラメータ設定
+├── plot_targets.tsv       # 可視化対象 gene / gene set シート
 ├── samples.tsv            # サンプル情報
 ├── init_project.sh        # プロジェクト初期化スクリプト
 ├── run_pipeline.sh        # メイン実行スクリプト

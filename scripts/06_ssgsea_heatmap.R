@@ -294,6 +294,11 @@ output_dir <- resolve_input_path(cfg$SSGSEA_OUTPUT_DIR %||% file.path(project_di
 deseq2_dir <- file.path(project_dir, "DESeq2")
 counts_file <- file.path(deseq2_dir, "Counts.normalized.txt")
 custom_gmt <- resolve_input_path(cfg$CUSTOM_GMT %||% "", project_dir, cfg)
+plot_targets_file <- resolve_input_path(
+  cfg$PLOT_TARGETS_FILE %||% file.path(project_dir, "plot_targets.tsv"),
+  project_dir,
+  cfg
+)
 
 merge_samples_env <- Sys.getenv("PIPELINE_MERGE_SAMPLES", unset = "")
 sample_files <- parse_path_list(merge_samples_env, project_dir, cfg)
@@ -340,7 +345,22 @@ script_dir <- tryCatch({
   "scripts"
 })
 source(file.path(script_dir, "plot_utils.R"))
+source(file.path(script_dir, "target_sheet_utils.R"))
 pcfg <- load_plot_config()
+target_sheet <- tryCatch(read_target_sheet(plot_targets_file), error = function(e) NULL)
+
+selected_gene_sets <- get_targets_by_flag(
+  target_sheet,
+  c("geneset", "gene_set", "pathway", "gene set"),
+  "ssgsea"
+)
+
+selected_genes <- get_targets_by_flag(target_sheet, c("gene", "genes"), "heatmap")
+
+gene_plot_targets <- get_targets_by_flag(target_sheet, c("gene", "genes"), "gene_plot")
+if (length(gene_plot_targets) == 0) {
+  gene_plot_targets <- selected_genes
+}
 
 cat("============================================\n")
 cat(" Step 6: ssGSEA and selected-gene visualization\n")
@@ -382,9 +402,6 @@ rownames(expr_log_upper) <- clean_key(rownames(expr_log_upper))
 if (any(duplicated(rownames(expr_log_upper)))) {
   expr_log_upper <- rowsum(expr_log_upper, group = rownames(expr_log_upper), reorder = FALSE)
 }
-
-selected_gene_sets <- pcfg$ssgsea$gene_sets %||% character()
-selected_genes <- pcfg$selected_genes$genes %||% character()
 
 if (length(selected_gene_sets) > 0) {
   gene_set_info <- resolve_gene_sets(selected_gene_sets, ssgsea_categories, species, ssgsea_gmt_paths)
@@ -431,11 +448,13 @@ if (length(selected_gene_sets) > 0) {
   }
 }
 
-if (length(selected_genes) > 0) {
+all_selected_genes <- unique(c(selected_genes, gene_plot_targets))
+
+if (length(all_selected_genes) > 0) {
   gene_map <- setNames(rownames(expr_mat), clean_key(rownames(expr_mat)))
-  gene_keys <- clean_key(selected_genes)
+  gene_keys <- clean_key(all_selected_genes)
   present_genes <- unique(unname(gene_map[gene_keys[gene_keys %in% names(gene_map)]]))
-  missing_genes <- selected_genes[!(gene_keys %in% names(gene_map))]
+  missing_genes <- all_selected_genes[!(gene_keys %in% names(gene_map))]
 
   if (length(missing_genes) > 0) {
     warning("Selected genes not found: ", paste(missing_genes, collapse = ", "))
@@ -444,34 +463,39 @@ if (length(selected_genes) > 0) {
   if (length(present_genes) > 0) {
     gene_mat <- expr_mat[present_genes, , drop = FALSE]
     gene_mat_log <- log1p(gene_mat)
-    heatmap_scale <- pcfg$heatmap$scale %||% "row"
-    gene_mat_scaled <- scale_matrix(gene_mat_log, heatmap_scale)
-    ann_col <- build_annotation(sample_info, colnames(gene_mat_scaled))
+    heatmap_genes_present <- present_genes[present_genes %in% unique(unname(gene_map[clean_key(selected_genes)]))]
+    if (length(heatmap_genes_present) > 0) {
+      heatmap_mat <- gene_mat[heatmap_genes_present, , drop = FALSE]
+      heatmap_mat_log <- gene_mat_log[heatmap_genes_present, , drop = FALSE]
+      heatmap_scale <- pcfg$heatmap$scale %||% "row"
+      heatmap_mat_scaled <- scale_matrix(heatmap_mat_log, heatmap_scale)
+      ann_col <- build_annotation(sample_info, colnames(heatmap_mat_scaled))
 
-    data.table::fwrite(
-      as.data.frame(gene_mat) %>% tibble::rownames_to_column("Gene"),
-      file.path(output_dir, "selected_genes_normalized_counts.tsv"),
-      sep = "\t"
-    )
-    data.table::fwrite(
-      as.data.frame(gene_mat_log) %>% tibble::rownames_to_column("Gene"),
-      file.path(output_dir, "selected_genes_log1p.tsv"),
-      sep = "\t"
-    )
-    data.table::fwrite(
-      as.data.frame(gene_mat_scaled) %>% tibble::rownames_to_column("Gene"),
-      file.path(output_dir, "selected_genes_scaled.tsv"),
-      sep = "\t"
-    )
-    save_heatmap(
-      gene_mat_scaled,
-      ann_col,
-      main = pcfg$selected_genes$heatmap_title %||% "Selected genes",
-      filepath = file.path(output_dir, "selected_gene_heatmap.pdf"),
-      cfg = pcfg,
-      show_rownames = pcfg$selected_genes$show_rownames %||% TRUE,
-      show_colnames = pcfg$selected_genes$show_colnames %||% TRUE
-    )
+      data.table::fwrite(
+        as.data.frame(heatmap_mat) %>% tibble::rownames_to_column("Gene"),
+        file.path(output_dir, "selected_genes_normalized_counts.tsv"),
+        sep = "\t"
+      )
+      data.table::fwrite(
+        as.data.frame(heatmap_mat_log) %>% tibble::rownames_to_column("Gene"),
+        file.path(output_dir, "selected_genes_log1p.tsv"),
+        sep = "\t"
+      )
+      data.table::fwrite(
+        as.data.frame(heatmap_mat_scaled) %>% tibble::rownames_to_column("Gene"),
+        file.path(output_dir, "selected_genes_scaled.tsv"),
+        sep = "\t"
+      )
+      save_heatmap(
+        heatmap_mat_scaled,
+        ann_col,
+        main = pcfg$selected_genes$heatmap_title %||% "Selected genes",
+        filepath = file.path(output_dir, "selected_gene_heatmap.pdf"),
+        cfg = pcfg,
+        show_rownames = pcfg$selected_genes$show_rownames %||% TRUE,
+        show_colnames = pcfg$selected_genes$show_colnames %||% TRUE
+      )
+    }
 
     plot_sample_info <- sample_info
     if (length(gene_plot_groups) == 0) {
@@ -503,7 +527,11 @@ if (length(selected_genes) > 0) {
       }
 
       if (nrow(plot_sample_info) > 0) {
-        for (gene_name in present_genes) {
+        plot_genes <- present_genes[present_genes %in% unique(unname(gene_map[clean_key(gene_plot_targets)]))]
+        if (length(plot_genes) == 0) {
+          plot_genes <- present_genes
+        }
+        for (gene_name in plot_genes) {
           data_gene <- data.frame(
             sample = plot_sample_info$sample_name,
             group = factor(plot_sample_info$group, levels = gene_plot_groups),

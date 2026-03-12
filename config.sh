@@ -14,6 +14,7 @@ PIPELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # For standalone use, it defaults to the pipeline directory itself.
 PROJECT_DIR="${PIPELINE_DIR}"
 SAMPLES_TSV="${PROJECT_DIR}/samples.tsv"
+PLOT_TARGETS_FILE="${PROJECT_DIR}/plot_targets.tsv"
 
 # --- Reference Genome ---
 # Supported: "hg38" or "mm10"
@@ -81,9 +82,6 @@ SSGSEA_MIN_SAMPLES_FRACTION=0.5
 # Groups for per-gene plots. Leave empty to auto-detect when exactly 2 groups exist.
 GENE_PLOT_GROUPS=""
 GENE_PLOT_PAIRED=true
-
-# --- Genes to highlight in volcano plots (comma-separated) ---
-HIGHLIGHT_GENES="ITGA3,PROCR,KIT,HLF,MECOM,MYCT1,MLLT3,THY1,ADGRG1,CD34"
 
 # =============================================================================
 # Derived values (do not edit below this line)

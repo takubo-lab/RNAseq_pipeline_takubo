@@ -74,6 +74,7 @@ PIPELINE_DIR="${PIPELINE_DIR}"
 # --- Project ---
 PROJECT_DIR="${PROJECT_NEW}"
 SAMPLES_TSV="\${PROJECT_DIR}/samples.tsv"
+PLOT_TARGETS_FILE="\${PROJECT_DIR}/plot_targets.tsv"
 
 # --- Reference Genome ---
 GENOME="${GENOME}"
@@ -136,9 +137,6 @@ SSGSEA_MIN_SAMPLES_FRACTION=0.5
 GENE_PLOT_GROUPS=""
 GENE_PLOT_PAIRED=true
 
-# --- Genes to highlight in volcano plots ---
-HIGHLIGHT_GENES="ITGA3,PROCR,KIT,HLF,MECOM,MYCT1,MLLT3,THY1,ADGRG1,CD34"
-
 # =============================================================================
 # Derived values (do not edit below this line)
 # =============================================================================
@@ -170,6 +168,63 @@ Sample2_post	post	Sample2_post	L5
 SAMPLESEOF
 
 # ---------------------------------------------------------------------------
+# Generate plot_targets.tsv template
+# ---------------------------------------------------------------------------
+cat > "${PROJECT_NEW}/plot_targets.tsv" <<'TARGETSEOF'
+target_name	target_type	ssgsea	heatmap	gene_plot	volcano_highlight
+WP_SENESCENCEASSOCIATED_SECRETORY_PHENOTYPE_SASP	geneset	1	0	0	0
+REACTOME_OXIDATIVE_STRESS_INDUCED_SENESCENCE	geneset	1	0	0	0
+REACTOME_NONHOMOLOGOUS_END_JOINING_NHEJ	geneset	1	0	0	0
+REACTOME_G2_M_DNA_DAMAGE_CHECKPOINT	geneset	1	0	0	0
+REACTOME_DNA_DOUBLE_STRAND_BREAK_RESPONSE	geneset	1	0	0	0
+REACTOME_DNA_DAMAGE_TELOMERE_STRESS_INDUCED_SENESCENCE	geneset	1	0	0	0
+JAATINEN_HEMATOPOIETIC_STEM_CELL_DN	geneset	1	0	0	0
+GERY_CEBP_TARGETS	geneset	1	0	0	0
+REACTOME_REGULATION_OF_PTEN_GENE_TRANSCRIPTION	geneset	1	0	0	0
+MCBRYAN_PUBERTAL_TGFB1_TARGETS_UP	geneset	1	0	0	0
+WONG_ADULT_TISSUE_STEM_MODULE	geneset	1	0	0	0
+LEE_BMP2_TARGETS_UP	geneset	1	0	0	0
+LEE_NEURAL_CREST_STEM_CELL_UP	geneset	1	0	0	0
+BOQUEST_STEM_CELL_CULTURED_VS_FRESH_UP	geneset	1	0	0	0
+DDIT3	gene	0	1	1	0
+CFB	gene	0	1	1	0
+ARRDC3	gene	0	1	1	0
+FOS	gene	0	1	1	0
+ATF3	gene	0	1	1	0
+H1-3	gene	0	1	1	0
+H2BC3	gene	0	1	1	0
+SCIMP	gene	0	1	1	0
+BNIPL	gene	0	1	1	0
+LILRA4	gene	0	1	1	0
+CD69	gene	0	1	1	0
+SDE2	gene	0	1	1	0
+IFI30	gene	0	1	1	0
+PAIP1P1	gene	0	1	1	0
+H3C13	gene	0	1	1	0
+SOCS3	gene	0	1	1	0
+H1-4	gene	0	1	1	0
+H3-3B	gene	0	1	1	0
+CDKN1B	gene	0	1	1	0
+H4C6	gene	0	1	1	0
+EXO1	gene	0	1	1	0
+BRCA1	gene	0	1	1	0
+VCAN	gene	0	1	1	0
+SMAD7	gene	0	1	1	0
+HMOX1	gene	0	1	1	0
+MMP9	gene	0	1	1	0
+ITGA3	gene	0	0	0	1
+PROCR	gene	0	0	0	1
+KIT	gene	0	0	0	1
+HLF	gene	0	0	0	1
+MECOM	gene	0	0	0	1
+MYCT1	gene	0	0	0	1
+MLLT3	gene	0	0	0	1
+THY1	gene	0	0	0	1
+ADGRG1	gene	0	0	0	1
+CD34	gene	0	0	0	1
+TARGETSEOF
+
+# ---------------------------------------------------------------------------
 # Generate comparisons.tsv template (optional)
 # ---------------------------------------------------------------------------
 cat > "${PROJECT_NEW}/comparisons.tsv" <<'COMPEOF'
@@ -186,6 +241,11 @@ COMPEOF
 if [[ -d "${PIPELINE_DIR}/Gene_set" ]]; then
     cp -r "${PIPELINE_DIR}/Gene_set/"* "${PROJECT_NEW}/Gene_set/" 2>/dev/null || true
     log_info "Copied gene set files → ${PROJECT_NEW}/Gene_set/"
+fi
+
+if [[ -f "${PIPELINE_DIR}/plot_targets.tsv" ]]; then
+    cp "${PIPELINE_DIR}/plot_targets.tsv" "${PROJECT_NEW}/plot_targets.tsv"
+    log_info "Copied plot_targets.tsv → ${PROJECT_NEW}/"
 fi
 
 # ---------------------------------------------------------------------------
@@ -250,11 +310,12 @@ echo ""
 echo "Next steps:"
 echo "  1. Edit ${PROJECT_NEW}/config.sh"
 echo "  2. Edit ${PROJECT_NEW}/samples.tsv"
-echo "  3. Place FASTQ files in ${PROJECT_NEW}/fastq/"
-echo "  4. (Optional) Customize plots:"
+echo "  3. Edit ${PROJECT_NEW}/plot_targets.tsv"
+echo "  4. Place FASTQ files in ${PROJECT_NEW}/fastq/"
+echo "  5. (Optional) Customize plots:"
 echo "       cp ${PROJECT_NEW}/plot_config.default.yml ${PROJECT_NEW}/plot_config.yml"
 echo "       vim ${PROJECT_NEW}/plot_config.yml"
-echo "  5. Run the pipeline:"
+echo "  6. Run the pipeline:"
 echo ""
 echo "     # Linux (full pipeline, conda環境内):"
 echo "     conda activate rnaseq_takubo"

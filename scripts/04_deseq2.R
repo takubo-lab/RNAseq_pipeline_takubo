@@ -169,12 +169,16 @@ if (length(count_files) == 0) {
 
 samples_tsv <- paste(sample_files, collapse = ", ")
 count_file  <- paste(count_files, collapse = ", ")
+plot_targets_file <- resolve_input_path(
+  cfg$PLOT_TARGETS_FILE %||% file.path(project_dir, "plot_targets.tsv"),
+  project_dir,
+  cfg
+)
 
 min_count   <- as.integer(cfg$MIN_COUNT_FILTER %||% 50)
 pca_top     <- as.integer(cfg$PCA_TOP_GENES %||% 500)
 padj_thr    <- as.numeric(cfg$VOLCANO_PADJ %||% 0.001)
 lfc_thr     <- as.numeric(cfg$VOLCANO_LOG2FC %||% 1)
-gene_list   <- unlist(strsplit(cfg$HIGHLIGHT_GENES %||% "", ","))
 
 # --- Load packages ---
 suppressPackageStartupMessages({
@@ -201,7 +205,12 @@ script_dir <- tryCatch({
   "scripts"
 })
 source(file.path(script_dir, "plot_utils.R"))
+source(file.path(script_dir, "target_sheet_utils.R"))
 pcfg <- load_plot_config()
+target_sheet <- tryCatch(read_target_sheet(plot_targets_file), error = function(e) NULL)
+
+gene_list <- get_targets_by_flag(target_sheet, c("gene", "genes"), "volcano_highlight")
+gene_list <- unique(trimws(gene_list[nzchar(trimws(gene_list))]))
 
 set.seed(123)
 

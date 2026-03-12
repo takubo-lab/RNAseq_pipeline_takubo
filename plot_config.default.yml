@@ -135,56 +135,9 @@ heatmap:
   top_n: 50                     # 表示する上位変動遺伝子数
 
 # ----------------------------------------------------------
-# single-sample GSEA
-# ----------------------------------------------------------
-ssgsea:
-  gene_sets:
-    - "WP_SENESCENCEASSOCIATED_SECRETORY_PHENOTYPE_SASP"
-    - "REACTOME_OXIDATIVE_STRESS_INDUCED_SENESCENCE"
-    - "REACTOME_NONHOMOLOGOUS_END_JOINING_NHEJ"
-    - "REACTOME_G2_M_DNA_DAMAGE_CHECKPOINT"
-    - "REACTOME_DNA_DOUBLE_STRAND_BREAK_RESPONSE"
-    - "REACTOME_DNA_DAMAGE_TELOMERE_STRESS_INDUCED_SENESCENCE"
-    - "JAATINEN_HEMATOPOIETIC_STEM_CELL_DN"
-    - "GERY_CEBP_TARGETS"
-    - "REACTOME_REGULATION_OF_PTEN_GENE_TRANSCRIPTION"
-    - "MCBRYAN_PUBERTAL_TGFB1_TARGETS_UP"
-    - "WONG_ADULT_TISSUE_STEM_MODULE"
-    - "LEE_BMP2_TARGETS_UP"
-    - "LEE_NEURAL_CREST_STEM_CELL_UP"
-    - "BOQUEST_STEM_CELL_CULTURED_VS_FRESH_UP"
-
-# ----------------------------------------------------------
 # 個別遺伝子ヒートマップ / グラフ
 # ----------------------------------------------------------
 selected_genes:
-  genes:
-    - "DDIT3"
-    - "CFB"
-    - "ARRDC3"
-    - "FOS"
-    - "ATF3"
-    - "H1-3"
-    - "H2BC3"
-    - "SCIMP"
-    - "BNIPL"
-    - "LILRA4"
-    - "CD69"
-    - "SDE2"
-    - "IFI30"
-    - "PAIP1P1"
-    - "H3C13"
-    - "SOCS3"
-    - "H1-4"
-    - "H3-3B"
-    - "CDKN1B"
-    - "H4C6"
-    - "EXO1"
-    - "BRCA1"
-    - "VCAN"
-    - "SMAD7"
-    - "HMOX1"
-    - "MMP9"
   heatmap_title: "Selected genes"
   expression_label: "log1p(normalized counts)"
   show_rownames: true
