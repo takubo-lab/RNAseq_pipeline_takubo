@@ -7,7 +7,7 @@
 #
 # Cross-platform:
 #   Linux : bash run_pipeline.sh (full pipeline)
-#   Win/Mac: Rscript scripts/06_exon_de.R [config.sh]
+#   Win/Mac: Rscript scripts/07_exon_de.R [config.sh]
 #            (exon_count.txt と samples.tsv が事前に用意されている前提)
 #
 # 可視化設定: plot_config.default.yml / plot_config.yml

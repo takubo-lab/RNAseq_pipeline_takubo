@@ -219,7 +219,7 @@ fi
 if should_run 7; then
     echo ">>> Step 7: Exon-level DE (DEXSeq)"
     cd "${PROJECT_DIR}"
-    Rscript "${SCRIPT_DIR}/scripts/06_exon_de.R" "${CONFIG}"
+    Rscript "${SCRIPT_DIR}/scripts/07_exon_de.R" "${CONFIG}"
     echo ""
 fi
 

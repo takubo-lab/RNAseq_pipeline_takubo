@@ -72,6 +72,7 @@ CUSTOM_GMT="${PROJECT_DIR}/Gene_set/Human_old_HSC_set2.gmt"
 # --- Single-sample GSEA / selected-gene visualization ---
 SSGSEA_OUTPUT_DIR="${PROJECT_DIR}/single_sample"
 SSGSEA_MSIG_CATEGORIES="H,C2,C3,C4,C5,C6,C7"
+SSGSEA_GMT_FILES="Human_old_HSC_set2.gmt"
 SSGSEA_MIN_SIZE=10
 SSGSEA_MAX_SIZE=5000
 SSGSEA_MIN_EXPR=1

@@ -157,7 +157,24 @@ read_gmt_file <- function(path) {
   out
 }
 
-resolve_gene_sets <- function(target_gene_sets, msig_categories, species, custom_gmt = "") {
+resolve_gmt_paths <- function(gmt_files, project_dir, cfg = list()) {
+  if (length(gmt_files) == 0) {
+    return(character())
+  }
+
+  unique(vapply(gmt_files, function(item) {
+    trimmed <- trimws(item)
+    if (!nzchar(trimmed)) {
+      return("")
+    }
+    if (grepl("^/", trimmed) || grepl("^~", trimmed) || grepl("\\$", trimmed) || grepl("/", trimmed)) {
+      return(resolve_input_path(trimmed, project_dir, cfg))
+    }
+    file.path(project_dir, "Gene_set", trimmed)
+  }, character(1)))
+}
+
+resolve_gene_sets <- function(target_gene_sets, msig_categories, species, gmt_paths = character()) {
   collections <- list()
 
   for (cat in msig_categories) {
@@ -172,8 +189,12 @@ resolve_gene_sets <- function(target_gene_sets, msig_categories, species, custom
     collections <- c(collections, split_genes[setdiff(names(split_genes), names(collections))])
   }
 
-  if (nzchar(custom_gmt) && file.exists(custom_gmt)) {
-    custom_sets <- read_gmt_file(custom_gmt)
+  for (gmt_path in unique(gmt_paths[nzchar(gmt_paths)])) {
+    if (!file.exists(gmt_path)) {
+      warning("ssGSEA gene set file not found: ", gmt_path)
+      next
+    }
+    custom_sets <- read_gmt_file(gmt_path)
     custom_keys <- clean_key(names(custom_sets))
     names(custom_sets) <- custom_keys
     collections[names(custom_sets)] <- custom_sets
@@ -281,6 +302,7 @@ if (length(sample_files) == 0) {
 }
 
 ssgsea_categories <- parse_csv(cfg$SSGSEA_MSIG_CATEGORIES %||% "H,C2,C3,C4,C5,C6,C7")
+ssgsea_gmt_files <- parse_csv(cfg$SSGSEA_GMT_FILES %||% "")
 ssgsea_min_size <- as.integer(cfg$SSGSEA_MIN_SIZE %||% 10)
 ssgsea_max_size <- as.integer(cfg$SSGSEA_MAX_SIZE %||% 5000)
 ssgsea_min_expr <- as.numeric(cfg$SSGSEA_MIN_EXPR %||% 1)
@@ -289,6 +311,10 @@ gene_plot_groups <- parse_csv(cfg$GENE_PLOT_GROUPS %||% "")
 gene_plot_paired <- to_bool(cfg$GENE_PLOT_PAIRED %||% "true", default = TRUE)
 genome <- cfg$GENOME %||% "hg38"
 species <- ifelse(genome == "hg38", "Homo sapiens", "Mus musculus")
+ssgsea_gmt_paths <- resolve_gmt_paths(ssgsea_gmt_files, project_dir, cfg)
+if (nzchar(custom_gmt)) {
+  ssgsea_gmt_paths <- unique(c(ssgsea_gmt_paths, custom_gmt))
+}
 
 suppressPackageStartupMessages({
   library(data.table)
@@ -361,7 +387,7 @@ selected_gene_sets <- pcfg$ssgsea$gene_sets %||% character()
 selected_genes <- pcfg$selected_genes$genes %||% character()
 
 if (length(selected_gene_sets) > 0) {
-  gene_set_info <- resolve_gene_sets(selected_gene_sets, ssgsea_categories, species, custom_gmt)
+  gene_set_info <- resolve_gene_sets(selected_gene_sets, ssgsea_categories, species, ssgsea_gmt_paths)
   if (length(gene_set_info$missing) > 0) {
     warning("The following ssGSEA gene sets were not found: ", paste(gene_set_info$missing, collapse = ", "))
   }

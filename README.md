@@ -12,7 +12,7 @@ RNA-seq解析パイプライン。FASTQ → STAR mapping → featureCounts → D
 | 4 | `scripts/04_deseq2.R` | DESeq2 発現変動解析 (全グループペア比較) |
 | 5 | `scripts/05_fgsea.R` | fGSEA 遺伝子セットエンリッチメント解析 |
 | 6 | `scripts/06_ssgsea_heatmap.R` | single-sample GSEA、選択遺伝子ヒートマップ、個別遺伝子グラフ |
-| 7 | `scripts/06_exon_de.R` | DEXSeq エクソンレベルDE (スプライシング変異解析) |
+| 7 | `scripts/07_exon_de.R` | DEXSeq エクソンレベルDE (スプライシング変異解析) |
 
 ## Step 6 追加機能
 
@@ -116,7 +116,7 @@ bash run_pipeline.sh --from 4 \
 
 ### `plot_config.default.yml` / `plot_config.yml`
 
-single-sample GSEA で使う gene set 名は `ssgsea.gene_sets`、ヒートマップと個別グラフで使う遺伝子は `selected_genes.genes` に記述します。
+single-sample GSEA で使う gene set 名は `ssgsea.gene_sets`、ヒートマップと個別グラフで使う遺伝子は `selected_genes.genes` に記述します。gene set の参照元は MSigDB と、`config.sh` の `SSGSEA_GMT_FILES` で指定した `Gene_set/` 配下の GMT ファイルです。
 
 ```yml
 ssgsea:
@@ -144,6 +144,7 @@ Step 6 用の主なパラメーター:
 ```bash
 SSGSEA_OUTPUT_DIR="${PROJECT_DIR}/single_sample"
 SSGSEA_MSIG_CATEGORIES="H,C2,C3,C4,C5,C6,C7"
+SSGSEA_GMT_FILES="Human_old_HSC_set2.gmt,HSC_set3.gmt"
 SSGSEA_MIN_SIZE=10
 SSGSEA_MAX_SIZE=5000
 SSGSEA_MIN_EXPR=1
@@ -154,6 +155,7 @@ GENE_PLOT_PAIRED=true
 ```
 
 - `SSGSEA_MSIG_CATEGORIES`: 検索する MSigDB category
+- `SSGSEA_GMT_FILES`: `Gene_set/` 配下から ssGSEA の候補 gene set として読み込む GMT ファイル名。カンマ区切りで複数指定可
 - `GENE_PLOT_GROUPS`: 個別遺伝子グラフを描く 2 群。空欄なら 2 群実験時に自動検出
 - `GENE_PLOT_PAIRED`: `sample_name` の末尾が `_group名` 形式ならペアとして線で接続
 
@@ -200,7 +202,7 @@ RNAseq_pipeline_takubo/
 │   ├── 04_deseq2.R
 │   ├── 05_fgsea.R
 │   ├── 06_ssgsea_heatmap.R
-│   └── 06_exon_de.R
+│   └── 07_exon_de.R
 ├── Gene_set/              # カスタム遺伝子セット
 │   └── HSC_set3.gmt
 ├── fastq/                 # 入力FASTQファイル (gitignore)
