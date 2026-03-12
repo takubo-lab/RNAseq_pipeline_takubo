@@ -9,7 +9,7 @@
 # Example for paired-end reads with files:
 #   fastq/SampleA_L5_1.fq.gz and fastq/SampleA_L5_2.fq.gz
 #
-# sample_name	group	fq_prefix	lane_suffix
+sample_name	group	fq_prefix	lane_suffix
 Sample1_pre	pre	Sample1	L5
 Sample1_post	post	Sample1_post	L5
 Sample2_pre	pre	Sample2	L5

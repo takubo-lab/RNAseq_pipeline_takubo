@@ -187,6 +187,7 @@ save_plot <- function(plot, filename, type = "pca", outdir = ".", cfg = NULL) {
       volcano    = list(width = 6, height = 6),
       heatmap    = list(width = 10, height = 8),
       fgsea_bar  = list(width = 12, height = 8),
+      gene_plot  = list(width = 4.5, height = 4.2),
       exon_usage = list(width = 12, height = 6)
     ),
     output = list(format = "png", dpi = 600),

@@ -67,7 +67,19 @@ FGSEA_NPROC=12
 FGSEA_PADJ=0.05
 
 # --- Gene set files (optional, in addition to MSigDB) ---
-CUSTOM_GMT="${PROJECT_DIR}/Gene_set/HSC_set3.gmt"
+CUSTOM_GMT="${PROJECT_DIR}/Gene_set/Human_old_HSC_set2.gmt"
+
+# --- Single-sample GSEA / selected-gene visualization ---
+SSGSEA_OUTPUT_DIR="${PROJECT_DIR}/single_sample"
+SSGSEA_MSIG_CATEGORIES="H,C2,C3,C4,C5,C6,C7"
+SSGSEA_MIN_SIZE=10
+SSGSEA_MAX_SIZE=5000
+SSGSEA_MIN_EXPR=1
+SSGSEA_MIN_SAMPLES_FRACTION=0.5
+
+# Groups for per-gene plots. Leave empty to auto-detect when exactly 2 groups exist.
+GENE_PLOT_GROUPS=""
+GENE_PLOT_PAIRED=true
 
 # --- Genes to highlight in volcano plots (comma-separated) ---
 HIGHLIGHT_GENES="ITGA3,PROCR,KIT,HLF,MECOM,MYCT1,MLLT3,THY1,ADGRG1,CD34"

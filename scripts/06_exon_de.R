@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# Step 6: Exon-level Differential Expression (Splicing Variant Analysis)
+# Step 7: Exon-level Differential Expression (Splicing Variant Analysis)
 # =============================================================================
 # Uses DEXSeq to detect differential exon usage between groups,
 # which indicates splicing variant differences.
@@ -199,7 +199,7 @@ set.seed(123)
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
 cat("============================================\n")
-cat(" Step 6: Exon-level DE (DEXSeq)\n")
+cat(" Step 7: Exon-level DE (DEXSeq)\n")
 cat(" Exon counts: ", exon_count, "\n")
 cat(" Output     : ", output_dir, "\n")
 cat("============================================\n")

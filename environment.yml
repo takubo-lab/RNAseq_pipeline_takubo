@@ -27,6 +27,7 @@ dependencies:
 
   # --- fGSEA ---
   - bioconductor-fgsea
+  - bioconductor-gsva
   - r-msigdbr
 
   # --- Utilities ---

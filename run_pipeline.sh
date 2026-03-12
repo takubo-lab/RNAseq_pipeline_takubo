@@ -22,7 +22,8 @@
 #   3. featureCounts (exon-level)
 #   4. DESeq2 differential expression
 #   5. fGSEA gene set enrichment
-#   6. Exon-level DE (DEXSeq, splicing variants)
+#   6. ssGSEA and selected-gene visualization
+#   7. Exon-level DE (DEXSeq, splicing variants)
 # =============================================================================
 set -euo pipefail
 
@@ -47,8 +48,8 @@ parse_step_list() {
     IFS=',' read -ra step_items <<< "${raw}"
     for item in "${step_items[@]}"; do
         item="$(echo "${item}" | xargs)"
-        if [[ ! "${item}" =~ ^[1-6]$ ]]; then
-            log_error "Invalid step in --only: ${item} (allowed: 1-6)"
+        if [[ ! "${item}" =~ ^[1-7]$ ]]; then
+            log_error "Invalid step in --only: ${item} (allowed: 1-7)"
             exit 1
         fi
         ONLY_STEPS+=("${item}")
@@ -206,9 +207,17 @@ if should_run 5; then
     echo ""
 fi
 
-# Step 6: Exon-level DE (DEXSeq)
+# Step 6: ssGSEA and selected-gene visualization
 if should_run 6; then
-    echo ">>> Step 6: Exon-level DE (DEXSeq)"
+    echo ">>> Step 6: ssGSEA and selected-gene visualization"
+    cd "${PROJECT_DIR}"
+    Rscript "${SCRIPT_DIR}/scripts/06_ssgsea_heatmap.R" "${CONFIG}"
+    echo ""
+fi
+
+# Step 7: Exon-level DE (DEXSeq)
+if should_run 7; then
+    echo ">>> Step 7: Exon-level DE (DEXSeq)"
     cd "${PROJECT_DIR}"
     Rscript "${SCRIPT_DIR}/scripts/06_exon_de.R" "${CONFIG}"
     echo ""

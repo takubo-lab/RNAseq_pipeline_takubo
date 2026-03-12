@@ -1,6 +1,6 @@
 # RNAseq Pipeline (Takubo Lab)
 
-RNA-seq解析パイプライン。FASTQ → STAR mapping → featureCounts → DESeq2 → fGSEA、およびエクソンレベルのsplicing variant解析を一括実行。
+RNA-seq解析パイプライン。FASTQ → STAR mapping → featureCounts → DESeq2 → fGSEA → single-sample GSEA / 個別遺伝子可視化 → エクソンレベル splicing variant 解析を一括実行。
 
 ## パイプライン概要
 
@@ -11,7 +11,18 @@ RNA-seq解析パイプライン。FASTQ → STAR mapping → featureCounts → D
 | 3 | `scripts/03_featurecounts_exon.sh` | featureCounts (エクソンレベルカウント) |
 | 4 | `scripts/04_deseq2.R` | DESeq2 発現変動解析 (全グループペア比較) |
 | 5 | `scripts/05_fgsea.R` | fGSEA 遺伝子セットエンリッチメント解析 |
-| 6 | `scripts/06_exon_de.R` | DEXSeq エクソンレベルDE (スプライシング変異解析) |
+| 6 | `scripts/06_ssgsea_heatmap.R` | single-sample GSEA、選択遺伝子ヒートマップ、個別遺伝子グラフ |
+| 7 | `scripts/06_exon_de.R` | DEXSeq エクソンレベルDE (スプライシング変異解析) |
+
+## Step 6 追加機能
+
+Step 6 では `DESeq2/Counts.normalized.txt` を再利用して、以下を自動生成します。
+
+- single-sample GSEA のスコア行列とヒートマップ
+- `plot_config.yml` / `plot_config.default.yml` で指定した遺伝子のヒートマップ
+- 2群比較時の個別遺伝子グラフ
+
+遺伝子セットと対象遺伝子は `plot_config` で指定し、それ以外の解析パラメーターは `config.sh` で制御します。
 
 ## クイックスタート
 
@@ -82,6 +93,9 @@ bash run_pipeline.sh --from 4
 # 特定のステップのみ実行
 bash run_pipeline.sh --only 5
 
+# Step 6 のみ実行
+bash run_pipeline.sh --only 6
+
 # 複数ステップのみ実行
 bash run_pipeline.sh --only 4,5
 
@@ -95,8 +109,53 @@ bash run_pipeline.sh --from 4 \
 	--merge-exon-counts /path/a/counts/exon_count.txt,/path/b/counts/exon_count.txt
 ```
 
-`--merge-samples`, `--merge-counts`, `--merge-exon-counts` は Step 4-6 で使用されます。
+`--merge-samples`, `--merge-counts`, `--merge-exon-counts` は Step 4-7 で使用されます。
 同じ annotation / gene definition で作成した count matrix を前提に、行名で単純結合し、サンプル列を横方向にマージします。
+
+## Step 6 の設定
+
+### `plot_config.default.yml` / `plot_config.yml`
+
+single-sample GSEA で使う gene set 名は `ssgsea.gene_sets`、ヒートマップと個別グラフで使う遺伝子は `selected_genes.genes` に記述します。
+
+```yml
+ssgsea:
+	gene_sets:
+		- "REACTOME_DNA_DOUBLE_STRAND_BREAK_RESPONSE"
+		- "WONG_ADULT_TISSUE_STEM_MODULE"
+
+selected_genes:
+	genes:
+		- "DDIT3"
+		- "BRCA1"
+		- "MMP9"
+```
+
+個人設定を使う場合は以下のようにテンプレートを複製します。
+
+```bash
+cp plot_config.default.yml plot_config.yml
+```
+
+### `config.sh`
+
+Step 6 用の主なパラメーター:
+
+```bash
+SSGSEA_OUTPUT_DIR="${PROJECT_DIR}/single_sample"
+SSGSEA_MSIG_CATEGORIES="H,C2,C3,C4,C5,C6,C7"
+SSGSEA_MIN_SIZE=10
+SSGSEA_MAX_SIZE=5000
+SSGSEA_MIN_EXPR=1
+SSGSEA_MIN_SAMPLES_FRACTION=0.5
+
+GENE_PLOT_GROUPS="pre,post"
+GENE_PLOT_PAIRED=true
+```
+
+- `SSGSEA_MSIG_CATEGORIES`: 検索する MSigDB category
+- `GENE_PLOT_GROUPS`: 個別遺伝子グラフを描く 2 群。空欄なら 2 群実験時に自動検出
+- `GENE_PLOT_PAIRED`: `sample_name` の末尾が `_group名` 形式ならペアとして線で接続
 
 ## バージョン管理・マルチユーザー運用
 
@@ -140,6 +199,7 @@ RNAseq_pipeline_takubo/
 │   ├── 03_featurecounts_exon.sh
 │   ├── 04_deseq2.R
 │   ├── 05_fgsea.R
+│   ├── 06_ssgsea_heatmap.R
 │   └── 06_exon_de.R
 ├── Gene_set/              # カスタム遺伝子セット
 │   └── HSC_set3.gmt
@@ -148,6 +208,7 @@ RNAseq_pipeline_takubo/
 ├── counts/                # カウントデータ (gitignore)
 ├── DESeq2/                # DESeq2結果
 ├── fGSEA/                 # fGSEA結果
+├── single_sample/         # ssGSEA / 選択遺伝子可視化結果
 └── exon_DE/               # エクソンレベルDE結果
 ```
 
@@ -163,6 +224,14 @@ RNAseq_pipeline_takubo/
 
 ### fGSEA
 - `fGSEA/fGSEA_{comparison}/fgsea_Results_*.tsv` — 各カテゴリのGSEA結果
+
+### Single-sample GSEA / selected genes
+- `single_sample/ssgsea_scores.tsv` — ssGSEA スコア行列
+- `single_sample/ssgsea_scores_rowZ.tsv` — 行方向 Z-score 化した ssGSEA スコア
+- `single_sample/ssgsea_heatmap.pdf` — ssGSEA ヒートマップ
+- `single_sample/selected_gene_heatmap.pdf` — 指定遺伝子ヒートマップ
+- `single_sample/per_gene_plots/*.png` — 選択遺伝子ごとのグラフ
+- `single_sample/per_gene_plots/gene_plot_summary.tsv` — 遺伝子ごとの検定結果サマリー
 
 ### Exon-level DE
 - `exon_DE/DEXSeq_all_results.tsv` — 全エクソン結果
@@ -180,6 +249,7 @@ RNAseq_pipeline_takubo/
 ```r
 # Bioconductor
 BiocManager::install(c("DESeq2", "fgsea", "msigdbr", "DEXSeq", "BiocParallel"))
+BiocManager::install(c("GSVA"))
 
 # CRAN
 install.packages(c("tidyverse", "data.table", "magrittr", "umap", "ggrepel"))

@@ -51,7 +51,7 @@ if ("--update" %in% args) {
   # 検証
   cat("\n=== パッケージ検証 ===\n")
   required <- c(
-    "DESeq2", "DEXSeq", "fgsea", "msigdbr", "BiocParallel",
+    "DESeq2", "DEXSeq", "fgsea", "GSVA", "msigdbr", "BiocParallel",
     "ggplot2", "ggrepel", "pheatmap", "RColorBrewer",
     "tidyverse", "data.table", "magrittr", "umap", "yaml"
   )
