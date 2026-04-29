@@ -38,6 +38,39 @@ parse_config <- function(config_path) {
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+stringify_cell <- function(x) {
+  if (is.null(x) || length(x) == 0) {
+    return(NA_character_)
+  }
+
+  if (is.atomic(x)) {
+    return(paste(as.character(x), collapse = ","))
+  }
+
+  converted <- tryCatch(as.character(x), error = function(e) NULL)
+  if (!is.null(converted) && length(converted) > 0) {
+    return(paste(converted, collapse = ","))
+  }
+
+  paste(capture.output(show(x)), collapse = " ")
+}
+
+sanitize_tsv_df <- function(df) {
+  for (nm in names(df)) {
+    col <- df[[nm]]
+    if (!(is.list(col) || isS4(col))) {
+      next
+    }
+
+    df[[nm]] <- vapply(seq_along(col), function(i) {
+      cell <- tryCatch(col[[i]], error = function(e) col[i])
+      stringify_cell(cell)
+    }, character(1))
+  }
+
+  df
+}
+
 normalize_sample_name <- function(x) {
   normalized <- trimws(as.character(x))
   normalized <- gsub("[^A-Za-z0-9]+", "_", normalized)
@@ -244,6 +277,17 @@ matched_idx <- matched_idx[!is.na(matched_idx)]
 count_mat <- count_mat[, matched_idx, drop = FALSE]
 colnames(count_mat) <- sample_info$sample_name
 
+# Filter low-count exons before fitting to reduce DEXSeq runtime.
+min_total_count <- suppressWarnings(as.integer(cfg$DEXSEQ_MIN_TOTAL_COUNT %||% "10"))
+if (is.na(min_total_count) || min_total_count < 0) {
+  min_total_count <- 10L
+}
+keep_idx <- rowSums(count_mat) >= min_total_count
+count_mat <- count_mat[keep_idx, , drop = FALSE]
+exon_annot <- exon_annot[keep_idx, , drop = FALSE]
+cat("Exons retained after filtering: ", nrow(count_mat), " / ", length(keep_idx),
+    " (min total count = ", min_total_count, ")\n", sep = "")
+
 # --- Create DEXSeqDataSet ---
 # Prepare annotation
 gene_ids <- exon_annot$gene_id
@@ -269,11 +313,15 @@ cat("Estimating size factors...\n")
 dxd <- estimateSizeFactors(dxd)
 
 cat("Estimating dispersions...\n")
-# Use platform-appropriate parallelism
+# Use configurable platform-appropriate parallelism.
+nproc <- suppressWarnings(as.integer(cfg$DEXSEQ_NPROC %||% "24"))
+if (is.na(nproc) || nproc < 1) {
+  nproc <- 24L
+}
 if (.Platform$OS.type == "windows") {
-  BPPARAM <- SerialParam()
+  BPPARAM <- SnowParam(workers = nproc)
 } else {
-  BPPARAM <- MulticoreParam(workers = min(4, parallel::detectCores()))
+  BPPARAM <- MulticoreParam(workers = nproc)
 }
 dxd <- estimateDispersions(dxd, BPPARAM = BPPARAM)
 
@@ -286,6 +334,11 @@ dxd <- estimateExonFoldChanges(dxd, fitExpToVar = "condition", BPPARAM = BPPARAM
 # --- Extract results ---
 dxr <- DEXSeqResults(dxd)
 dxr_df <- as.data.frame(dxr)
+
+# Preserve the full S4 result object separately, then flatten complex columns
+# for TSV export.
+saveRDS(dxr, file.path(output_dir, "DEXSeq_results.rds"))
+dxr_df <- sanitize_tsv_df(dxr_df)
 
 # Add original annotation
 dxr_df$gene_name   <- gene_ids
