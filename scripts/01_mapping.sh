@@ -40,7 +40,7 @@ fi
 mkdir -p "${BAM_DIR}"
 
 # Read samples.tsv (skip header and comments)
-while IFS=$'\t' read -r sample_name group fq_prefix lane_suffix; do
+while IFS=$'\t' read -r sample_name group fq_prefix lane_suffix || [[ -n "${sample_name}${group}${fq_prefix}${lane_suffix}" ]]; do
     [[ "${sample_name}" == "sample_name" || "${sample_name}" =~ ^#.*$ || -z "${sample_name}" ]] && continue
 
     R1="${FASTQ_DIR}/${fq_prefix}_${lane_suffix}_1.fq.gz"

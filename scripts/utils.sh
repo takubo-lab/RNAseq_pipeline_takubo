@@ -145,7 +145,7 @@ validate_samples() {
 
     # Check FASTQ files exist (optional — warn only)
     local missing=0
-    while IFS=$'\t' read -r sname group prefix suffix; do
+    while IFS=$'\t' read -r sname group prefix suffix || [[ -n "${sname}${group}${prefix}${suffix}" ]]; do
         [[ "${sname}" == "sample_name" || "${sname}" =~ ^#.*$ || -z "${sname}" ]] && continue
         local r1="${FASTQ_DIR}/${prefix}_${suffix}_1.fq.gz"
         if [[ ! -f "${r1}" ]]; then

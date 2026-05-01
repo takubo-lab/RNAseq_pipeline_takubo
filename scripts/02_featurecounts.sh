@@ -30,7 +30,7 @@ mkdir -p "${COUNTS_DIR}"
 
 # Collect all BAM files
 BAM_FILES=()
-while IFS=$'\t' read -r sample_name group fq_prefix lane_suffix; do
+while IFS=$'\t' read -r sample_name group fq_prefix lane_suffix || [[ -n "${sample_name}${group}${fq_prefix}${lane_suffix}" ]]; do
     [[ "${sample_name}" =~ ^#.*$ || -z "${sample_name}" ]] && continue
     BAM="${BAM_DIR}/${sample_name}_Aligned.sortedByCoord.out.bam"
     if [[ -f "${BAM}" ]]; then
