@@ -384,27 +384,90 @@ if (length(top_genes) > 0) {
   fmt <- pcfg$output$format %||% "png"
   dpi <- pcfg$output$dpi %||% 600
 
+  open_plot_device <- function(out_file) {
+    if (fmt == "png") {
+      png(out_file,
+          width = exon_size$width, height = exon_size$height,
+          units = "in", res = dpi)
+    } else if (fmt == "pdf") {
+      pdf(out_file,
+          width = exon_size$width, height = exon_size$height)
+    } else if (fmt == "svg") {
+      svg(out_file,
+          width = exon_size$width, height = exon_size$height)
+    } else {
+      png(out_file,
+          width = exon_size$width, height = exon_size$height,
+          units = "in", res = dpi)
+    }
+  }
+
+  plot_file_is_populated <- function(path, min_bytes = 50000) {
+    if (!file.exists(path)) {
+      return(FALSE)
+    }
+
+    info <- file.info(path)
+    !is.na(info$size) && info$size >= min_bytes
+  }
+
+  render_exon_usage_plot <- function(out_file, gene_id) {
+    if (file.exists(out_file)) {
+      file.remove(out_file)
+    }
+
+    open_plot_device(out_file)
+    primary_result <- try({
+      plotDEXSeq(dxr, gene_id, legend = TRUE, cex.axis = 1.2, cex = 1.3,
+                 lwd = 2, displayTranscripts = FALSE)
+    }, silent = TRUE)
+    tryCatch(dev.off(), error = function(e) NULL)
+
+    ok <- !inherits(primary_result, "try-error") && plot_file_is_populated(out_file)
+
+    if (ok) {
+      return(invisible(TRUE))
+    }
+
+    if (inherits(primary_result, "try-error")) {
+      message("  Effect plot failed for ", gene_id, ": ", as.character(primary_result),
+              " -- retrying with normalized counts.")
+    } else {
+      message("  Effect plot for ", gene_id,
+              " did not produce a populated file -- retrying with normalized counts.")
+    }
+
+    if (file.exists(out_file)) {
+      file.remove(out_file)
+    }
+
+    open_plot_device(out_file)
+    fallback_result <- try({
+      plotDEXSeq(dxr, gene_id,
+                 expression = FALSE,
+                 splicing = FALSE,
+                 norCounts = TRUE,
+                 legend = FALSE,
+                 cex.axis = 1.2,
+                 cex = 1.3,
+                 lwd = 2,
+                 displayTranscripts = FALSE)
+    }, silent = TRUE)
+    tryCatch({
+      tryCatch(dev.off(), error = function(e2) NULL)
+    }, error = function(e) NULL)
+
+    if (!plot_file_is_populated(out_file)) {
+      stop("Normalized-count fallback failed for ", gene_id, ": ", as.character(fallback_result))
+    }
+
+    invisible(TRUE)
+  }
+
   for (g in top_genes) {
     tryCatch({
       out_file <- file.path(plot_dir, paste0(g, "_exon_usage.", fmt))
-      if (fmt == "png") {
-        png(out_file,
-            width = exon_size$width, height = exon_size$height,
-            units = "in", res = dpi)
-      } else if (fmt == "pdf") {
-        pdf(out_file,
-            width = exon_size$width, height = exon_size$height)
-      } else if (fmt == "svg") {
-        svg(out_file,
-            width = exon_size$width, height = exon_size$height)
-      } else {
-        png(out_file,
-            width = exon_size$width, height = exon_size$height,
-            units = "in", res = dpi)
-      }
-      plotDEXSeq(dxr, g, legend = TRUE, cex.axis = 1.2, cex = 1.3,
-                 lwd = 2, displayTranscripts = FALSE)
-      dev.off()
+      render_exon_usage_plot(out_file, g)
       message("[plot_utils] 保存: ", out_file)
     }, error = function(e) {
       message("  Could not plot: ", g, " - ", e$message)
