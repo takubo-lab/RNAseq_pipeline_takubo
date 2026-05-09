@@ -235,6 +235,20 @@ MMP9	gene	0	1	1	1
 - `gene_plot`: 個別遺伝子グラフ対象
 - `volcano_highlight`: Step 4 の volcano plot ハイライト対象
 
+## fGSEA ランキングメトリクスについて
+
+Step 5 では DESeq2 の **Wald 統計量**（`stat` 列 = `log2FoldChange / lfcSE`）を遺伝子ランキングメトリクスとして使用します。
+
+### なぜ log2FoldChange ではなく stat を使うか
+
+DESeq2 の `results()` が出力する `log2FoldChange` は shrinkage が適用されていない推定値です。低カウント遺伝子や Cook 距離フィルタリングで `pvalue = NA` となった遺伝子でも `log2FoldChange` は出力され、`±40` を超える極端な値になることがあります。これらをそのまま fgsea のランクベクトルに使うと、null 置換分布が一方向に大きく偏り、一部の pathway の `pval`/`NES` が `NA` になるアーティファクトが生じます。
+
+`stat`（Wald 統計量）は `lfcSE` で正規化されているため値が縮約され、null 分布が適切に構成されます。これは fgsea や clusterProfiler のドキュメントでも推奨されるアプローチです。
+
+### 代替案
+
+`DESeq2::lfcShrink(type="apeglm")` で shrinkage を適用した `log2FoldChange` をランキングに使う方法も有効ですが、DESeq2 の再実行が必要です。
+
 ## バージョン管理・マルチユーザー運用
 
 ### バージョニング
@@ -303,6 +317,7 @@ RNAseq_pipeline_takubo/
 
 ### fGSEA
 - `fGSEA/fGSEA_{comparison}/fgsea_Results_*.tsv` — 各カテゴリのGSEA結果
+- `fGSEA/fgsea_unresolved_pathways.tsv` — permutationで統計量を計算できなかったpathwayの一覧（生成された場合のみ）
 
 ### Single-sample GSEA / selected genes
 - `single_sample/ssgsea_scores.tsv` — ssGSEA スコア行列

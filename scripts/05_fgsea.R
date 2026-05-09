@@ -72,6 +72,8 @@ fgsea_max    <- as.integer(cfg$FGSEA_MAX_SIZE %||% 500)
 fgsea_nperm  <- as.integer(cfg$FGSEA_NPERM %||% 10000)
 fgsea_nproc  <- as.integer(cfg$FGSEA_NPROC %||% 12)
 fgsea_padj   <- as.numeric(cfg$FGSEA_PADJ %||% 0.05)
+fgsea_retry_nperm <- as.integer(cfg$FGSEA_RETRY_NPERM %||% max(fgsea_nperm * 10L, 100000L))
+fgsea_max_retries <- as.integer(cfg$FGSEA_MAX_RETRIES %||% 0L)
 custom_gmt   <- resolve_config_path(cfg$CUSTOM_GMT %||% "", project_dir, cfg)
 
 species <- ifelse(genome == "hg38", "Homo sapiens", "Mus musculus")
@@ -190,13 +192,79 @@ save_enrichment_plots <- function(fgsea_res, pathways, ranks, comp_dir, comparis
   }
 }
 
+run_fgsea_once <- function(pathways, ranks, nperm_simple) {
+  warnings_seen <- character()
+  result <- withCallingHandlers(
+    fgseaMultilevel(
+      pathways      = pathways,
+      stats         = ranks,
+      eps           = 0,
+      minSize       = fgsea_min,
+      maxSize       = fgsea_max,
+      nPermSimple   = nperm_simple,
+      nproc         = fgsea_nproc
+    ),
+    warning = function(w) {
+      warnings_seen <<- c(warnings_seen, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    }
+  )
+
+  list(result = result, warnings = unique(warnings_seen))
+}
+
+retry_missing_fgsea_stats <- function(fgsea_res, pathways, ranks, comparison_name, category_name) {
+  missing_idx <- which(is.na(fgsea_res$pval) | is.na(fgsea_res$padj) | is.na(fgsea_res$NES))
+  if (length(missing_idx) == 0 || fgsea_max_retries <= 0) {
+    return(fgsea_res)
+  }
+
+  current_nperm <- fgsea_retry_nperm
+  for (attempt in seq_len(fgsea_max_retries)) {
+    missing_idx <- which(is.na(fgsea_res$pval) | is.na(fgsea_res$padj) | is.na(fgsea_res$NES))
+    if (length(missing_idx) == 0) {
+      break
+    }
+
+    retry_pathways <- pathways[fgsea_res$pathway[missing_idx]]
+    cat(
+      "    Retrying ", length(missing_idx), " pathway(s) with nPermSimple=", current_nperm,
+      " (attempt ", attempt, "/", fgsea_max_retries, ")\n",
+      sep = ""
+    )
+
+    retry_run <- run_fgsea_once(retry_pathways, ranks, current_nperm)
+    retry_res <- retry_run$result[match(fgsea_res$pathway[missing_idx], retry_run$result$pathway)]
+    fgsea_res[missing_idx, names(retry_res) := retry_res]
+
+    if (length(retry_run$warnings) > 0) {
+      cat(
+        "    fgsea retry warnings for ", comparison_name, " / ", category_name, ": ",
+        paste(retry_run$warnings, collapse = " | "),
+        "\n",
+        sep = ""
+      )
+    }
+
+    current_nperm <- current_nperm * 10L
+  }
+
+  fgsea_res
+}
+
 # --- fGSEA function ---
 run_fgsea <- function(de_file, gene_set_list) {
   de <- fread(de_file, sep = "\t")
-  ranks <- de$log2FoldChange
+  # Use DESeq2 Wald statistic (stat = log2FC / lfcSE) instead of raw log2FoldChange.
+  # Rationale: raw log2FC is inflated for low-count / Cook-flagged genes (pval=NA),
+  # producing extreme negative tails (e.g. -42) that bias the permutation null
+  # distribution entirely negative, causing fgsea to return NA for borderline pathways.
+  # The Wald stat is bounded and non-NA for all genes, eliminating this artifact.
+  ranks <- de$stat
   names(ranks) <- toupper(de$geneID)
   ranks <- na.omit(ranks)
   ranks <- sort(ranks, decreasing = TRUE)
+  unresolved_rows <- list()
 
   # Get comparison name
   file_name <- basename(de_file)
@@ -208,14 +276,17 @@ run_fgsea <- function(de_file, gene_set_list) {
 
   for (i in seq_along(gene_set_list)) {
     cat("  ", file_name, " - ", cat_names[i], "\n")
-    fgsea_res <- fgseaMultilevel(
-      pathways      = gene_set_list[[i]],
-      stats         = ranks,
-      eps           = 0,
-      minSize       = fgsea_min,
-      maxSize       = fgsea_max,
-      nPermSimple   = fgsea_nperm,
-      nproc         = fgsea_nproc
+    fgsea_run <- run_fgsea_once(gene_set_list[[i]], ranks, fgsea_nperm)
+    if (length(fgsea_run$warnings) > 0) {
+      cat("    fgsea warnings: ", paste(fgsea_run$warnings, collapse = " | "), "\n", sep = "")
+    }
+
+    fgsea_res <- retry_missing_fgsea_stats(
+      fgsea_run$result,
+      gene_set_list[[i]],
+      ranks,
+      file_name,
+      cat_names[i]
     )
     fgsea_res %<>% mutate(direction = case_when(
       padj < fgsea_padj & NES > 0 ~ "upReg",
@@ -223,9 +294,24 @@ run_fgsea <- function(de_file, gene_set_list) {
       TRUE ~ "none"
     ))
 
+    unresolved <- fgsea_res %>%
+      filter(is.na(pval) | is.na(padj) | is.na(NES) | is.na(log2err)) %>%
+      transmute(
+        comparison = file_name,
+        category = cat_names[i],
+        pathway,
+        size,
+        ES,
+        reason = "fgsea reported unbalanced gene-level statistics; pval/padj/NES/log2err are unavailable"
+      )
+    if (nrow(unresolved) > 0) {
+      unresolved_rows[[length(unresolved_rows) + 1L]] <- as.data.table(unresolved)
+      cat("    Unresolved pathways: ", nrow(unresolved), "\n", sep = "")
+    }
+
     out_file <- file.path(comp_dir,
                           paste0("fgsea_Results_", file_name, "_", cat_names[i], ".tsv"))
-    fwrite(fgsea_res, out_file, sep = "\t")
+    fwrite(fgsea_res, out_file, sep = "\t", na = "NA")
 
     # --- Bar plot of top pathways (using plot_config) ---
     sig_res <- fgsea_res %>% filter(padj < fgsea_padj)
@@ -256,6 +342,12 @@ run_fgsea <- function(de_file, gene_set_list) {
 
     save_enrichment_plots(fgsea_res, gene_set_list[[i]], ranks, comp_dir, file_name, cat_names[i])
   }
+
+  if (length(unresolved_rows) == 0) {
+    return(data.table())
+  }
+
+  rbindlist(unresolved_rows, fill = TRUE)
 }
 
 # --- Run on all DE result files ---
@@ -269,9 +361,20 @@ if (length(de_files) == 0) {
 
 cat("Found ", length(de_files), " DE result files.\n")
 
+fgsea_issues <- list()
+
 for (de_file in de_files) {
   cat("Processing: ", basename(de_file), "\n")
-  run_fgsea(de_file, msigdb_list)
+  issue_rows <- run_fgsea(de_file, msigdb_list)
+  if (nrow(issue_rows) > 0) {
+    fgsea_issues[[length(fgsea_issues) + 1L]] <- issue_rows
+  }
+}
+
+if (length(fgsea_issues) > 0) {
+  issue_file <- file.path(fgsea_dir, "fgsea_unresolved_pathways.tsv")
+  fwrite(rbindlist(fgsea_issues, fill = TRUE), issue_file, sep = "\t", na = "NA")
+  cat("Unresolved pathway summary: ", issue_file, "\n", sep = "")
 }
 
 cat("============================================\n")
